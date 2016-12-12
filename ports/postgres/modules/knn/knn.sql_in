@@ -1,0 +1,260 @@
+/* ----------------------------------------------------------------------- *//**
+ *
+ * @file knn.sql_in
+ *
+ * @brief Set of functions for k-nearest neighbors.
+ *
+ * @sa For a brief introduction to k-nearest neighbors, see the module
+ *     description \ref grp_kmeans.
+ *
+ *//* ----------------------------------------------------------------------- */
+
+m4_include(`SQLCommon.m4')
+DROP TYPE IF EXISTS MADLIB_SCHEMA.ahk_result CASCADE;
+CREATE TYPE MADLIB_SCHEMA.ahk_result AS (
+    vector DOUBLE PRECISION[],
+    top_k float
+);
+DROP TYPE IF EXISTS MADLIB_SCHEMA.knn_result CASCADE;
+CREATE TYPE MADLIB_SCHEMA.knn_result AS (
+    prediction float
+);
+DROP TYPE IF EXISTS MADLIB_SCHEMA.test_table_spec CASCADE;
+CREATE TYPE MADLIB_SCHEMA.test_table_spec AS (
+    id integer,
+    vector DOUBLE PRECISION[]
+);
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__knn_validate_src(
+rel_source VARCHAR
+) RETURNS VOID AS $$
+    PythonFunction(knn, knn, knn_validate_src)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `READS SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.knnold(
+    point_source VARCHAR,
+    point_column_name VARCHAR,
+    rel_source VARCHAR,
+    expr_point VARCHAR,
+    k INTEGER
+) RETURNS setof MADLIB_SCHEMA.ahk_result AS $$
+DECLARE
+    class_rel_source REGCLASS;
+    class_point_source REGCLASS;
+    theResult MADLIB_SCHEMA.ahk_result%rowtype;
+	
+BEGIN
+    class_rel_source := rel_source;
+    class_point_source := point_source;
+    for theResult in EXECUTE
+        $sql$
+        SELECT p.$sql$ || point_column_name || $sql$, madlib.squared_dist_norm2(p.$sql$ || point_column_name || $sql$, e.$sql$ || expr_point || $sql$) as dist FROM $sql$ || textin(regclassout(class_rel_source)) || $sql$ e,$sql$ || textin(regclassout(point_source)) || $sql$ p order by dist limit $sql$ || k loop
+return next theResult;
+end loop;
+return;
+--INTO theResult;
+   -- EXECUTE $sql$ SELECT $sql$ || expr_point || $sql$
+    --              FROM $sql$ || textin(regclassout(class_rel_source)) INTO theResult ;
+    
+  --  RETURN theResult;
+END;
+$$ LANGUAGE plpgsql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.knnnew(
+    point_source VARCHAR,
+    point_column_name VARCHAR,
+    rel_source VARCHAR,
+    expr_point VARCHAR,
+    k INTEGER
+) RETURNS VOID AS $$
+DECLARE
+    class_rel_source REGCLASS;
+    class_point_source REGCLASS;
+    theResult MADLIB_SCHEMA.ahk_result%rowtype;
+	
+BEGIN
+    class_rel_source := rel_source;
+    class_point_source := point_source;
+    EXECUTE
+        $sql$
+	DROP TABLE IF EXISTS public.knn_interm;
+        CREATE TABLE public.knn_interm AS
+        SELECT p.$sql$ || point_column_name || $sql$, madlib.squared_dist_norm2(p.$sql$ || point_column_name || $sql$, e.$sql$ || expr_point || $sql$) as dist FROM $sql$ || textin(regclassout(class_rel_source)) || $sql$ e,$sql$ || textin(regclassout(point_source)) || $sql$ p order by dist limit $sql$ || k
+--INTO theResult;
+   -- EXECUTE $sql$ SELECT $sql$ || expr_point || $sql$
+    --              FROM $sql$ || textin(regclassout(class_rel_source)) INTO theResult ;
+    
+  --  RETURN theResult;
+return;
+END;
+$$ LANGUAGE plpgsql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.ahkknn(
+    point_source VARCHAR,
+    point_column_name VARCHAR,
+    rel_source VARCHAR,
+    expr_point VARCHAR,
+    label_column_name VARCHAR,
+    operation VARCHAR,
+    k INTEGER
+) RETURNS MADLIB_SCHEMA.knn_result AS $$
+DECLARE
+    class_rel_source REGCLASS;
+    class_point_source REGCLASS;
+    theResult MADLIB_SCHEMA.knn_result;
+    l INTEGER;
+    original DOUBLE PRECISION[];
+BEGIN
+    class_rel_source := rel_source;
+    class_point_source := point_source;
+    EXECUTE
+	$sql$
+     	SELECT p FROM b $sql$
+    INTO original;
+    
+    EXECUTE
+        $sql$
+	DROP TABLE IF EXISTS public.knn_temp;
+        CREATE TABLE public.knn_temp AS
+        SELECT * from b;$sql$;
+
+    EXECUTE
+        $sql$
+	DROP TABLE IF EXISTS public.knn_interm;
+        CREATE TABLE public.knn_interm AS
+        SELECT p.$sql$ || point_column_name || $sql$, madlib.squared_dist_norm2(p.$sql$ || point_column_name || $sql$, e.$sql$ || expr_point || $sql$) as dist, p.$sql$ || label_column_name || $sql$ FROM $sql$ || textin(regclassout(class_rel_source)) || $sql$ e,$sql$ || textin(regclassout(point_source)) || $sql$ p order by dist limit $sql$ || k;
+--INTO theResult;
+   -- EXECUTE $sql$ SELECT $sql$ || expr_point || $sql$
+    --              FROM $sql$ || textin(regclassout(class_rel_source)) INTO theResult ;
+    
+  --  RETURN theResult;
+
+    IF (operation = 'c') THEN
+    EXECUTE
+        $sql$
+        SELECT mode() within group (order by $sql$ || label_column_name || $sql$) FROM  knn_interm $sql$
+    INTO theResult;
+    ELSE
+    EXECUTE
+        $sql$
+        SELECT avg( $sql$ || label_column_name || $sql$ ) FROM  knn_interm $sql$
+    INTO theResult;
+    END IF;
+
+    EXECUTE
+        $sql$
+        SELECT mode() within group (order by $sql$ || label_column_name || $sql$) FROM  knn_interm $sql$
+    INTO l;
+    RAISE NOTICE 'Original: %',original;
+    EXECUTE
+        $sql$
+    	DROP TABLE IF EXISTS public.knn_label;
+    	CREATE TABLE knn_label(v varchar, label integer);
+	$sql$;
+    EXECUTE 'INSERT INTO knn_label values($1,$2)'
+	USING original, l;
+    --EXECUTE
+      --  $sql$
+    --	DROP TABLE IF EXISTS public.knn_label;
+    --	CREATE TABLE knn_label(v varchar, label integer);
+    --	INSERT INTO knn_label values( $sql$ || original || $sql$ ,$sql$ || l || $sql$ ); $sql$;
+    
+RETURN theResult;
+END;
+$$ LANGUAGE plpgsql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+
+
+
+
+
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.knn(
+    point_source VARCHAR,
+    point_column_name VARCHAR,
+    label_column_name VARCHAR,
+    rel_source VARCHAR,
+    expr_point VARCHAR,
+    id_column_name VARCHAR,
+    operation VARCHAR,
+    k INTEGER
+) RETURNS VOID AS $$
+DECLARE
+    class_rel_source REGCLASS;
+    class_point_source REGCLASS;
+    l FLOAT;
+    id INTEGER;
+    vector DOUBLE PRECISION[];
+    cur_pid integer;
+    theResult MADLIB_SCHEMA.knn_result;
+    r MADLIB_SCHEMA.test_table_spec;
+BEGIN
+    PERFORM MADLIB_SCHEMA.__knn_validate_src(rel_source);
+    PERFORM MADLIB_SCHEMA.__knn_validate_src(point_source);
+    class_rel_source := rel_source;
+    class_point_source := point_source;
+    --checks
+    IF (k <= 0) THEN
+        RAISE EXCEPTION 'KNN error: Number of neighbors k must be a positive integer.';
+    END IF;
+    IF (operation != 'c' AND operation != 'r') THEN
+        RAISE EXCEPTION 'KNN error: put r for regression OR c for classification.';
+    END IF;
+
+    EXECUTE
+        $sql$
+    	DROP TABLE IF EXISTS pg_temp.knn_label;
+    	CREATE TABLE pg_temp.knn_label(pid integer, predlabel float);
+	$sql$;
+    
+    --FOR r IN EXECUTE format('SELECT * FROM %I', rel_source)
+    FOR r IN EXECUTE format('SELECT %I,%I FROM %I', id_column_name, expr_point, rel_source)
+    LOOP
+        
+	--RAISE NOTICE 'Original: %',r.pid;
+	--RAISE NOTICE 'Original: %',r.p;
+	cur_pid := r.id;
+	vector := r.vector;
+	EXECUTE
+        $sql$
+	DROP TABLE IF EXISTS pg_temp.knn_vector;
+        CREATE TABLE pg_temp.knn_vector(vec DOUBLE PRECISION[]);
+	$sql$;
+	EXECUTE 'INSERT INTO pg_temp.knn_vector values($1)'
+	USING vector;
+	EXECUTE
+        $sql$
+	DROP TABLE IF EXISTS pg_temp.knn_interm;
+        --CREATE TABLE pg_temp.knn_interm(dist DOUBLE PRECISION, lable integer );
+	CREATE TABLE pg_temp.knn_interm AS
+	
+        SELECT madlib.squared_dist_norm2($sql$ || point_column_name || $sql$, vec) as dist, $sql$ || label_column_name || $sql$ FROM $sql$ || textin(regclassout(point_source)) || $sql$, knn_vector order by dist limit $sql$ || k;
+	IF (operation = 'c') THEN
+    	EXECUTE
+        $sql$
+        SELECT mode() within group (order by $sql$ || label_column_name || $sql$) FROM  pg_temp.knn_interm $sql$
+    	INTO l;
+        ELSE
+        EXECUTE
+        $sql$
+        SELECT avg( $sql$ || label_column_name || $sql$ ) FROM  pg_temp.knn_interm $sql$
+        INTO l;
+        END IF;
+	EXECUTE 'INSERT INTO pg_temp.knn_label values($1,$2)'
+	USING cur_pid, l;
+    END LOOP;
+    
+    EXECUTE
+        $sql$
+	DROP TABLE IF EXISTS public.knn_final;
+        CREATE TABLE public.knn_final AS
+        SELECT e.$sql$ || id_column_name || $sql$, e.$sql$ || expr_point || $sql$, p.predlabel FROM $sql$ || textin(regclassout(class_rel_source)) || $sql$ e, pg_temp.knn_label p where e.$sql$ || id_column_name || $sql$ = p.pid;$sql$;
+
+END;
+$$ LANGUAGE plpgsql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');

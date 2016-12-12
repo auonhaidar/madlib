@@ -1,0 +1,213 @@
+---------------------------------------------------------------------------
+-- Rules:
+-- ------
+-- 1) Any DB objects should be created w/o schema prefix,
+--    since this file is executed in a separate schema context.
+-- 2) There should be no DROP statements in this script, since
+--    all objects created in the default schema will be cleaned-up outside.
+---------------------------------------------------------------------------
+m4_include(`SQLCommon.m4')
+
+---------------------------------------------------------------------------
+-- Build vocabulary:
+---------------------------------------------------------------------------
+CREATE TABLE lda_vocab(wordid INT4, word TEXT);
+
+INSERT INTO lda_vocab VALUES
+(0, 'code'), (1, 'data'), (2, 'graph'), (3, 'image'), (4, 'input'), (5,
+'layer'), (6, 'learner'), (7, 'loss'), (8, 'model'), (9, 'network'), (10,
+'neuron'), (11, 'object'), (12, 'output'), (13, 'rate'), (14, 'set'), (15,
+'signal'), (16, 'sparse'), (17, 'spatial'), (18, 'system'), (19, 'training');
+
+---------------------------------------------------------------------------
+-- Build training dataset:
+---------------------------------------------------------------------------
+CREATE TABLE lda_training
+(
+    docid INT4,
+    wordid INT4,
+    count INT4
+);
+
+INSERT INTO lda_training VALUES
+(0, 0, 2),(0, 3, 2),(0, 5, 1),(0, 7, 1),(0, 8, 1),(0, 9, 1),(0, 11, 1),(0, 13,
+1), (1, 0, 1),(1, 3, 1),(1, 4, 1),(1, 5, 1),(1, 6, 1),(1, 7, 1),(1, 10, 1),(1,
+14, 1),(1, 17, 1),(1, 18, 1), (2, 4, 2),(2, 5, 1),(2, 6, 2),(2, 12, 1),(2, 13,
+1),(2, 15, 1),(2, 18, 2), (3, 0, 1),(3, 1, 2),(3, 12, 3),(3, 16, 1),(3, 17,
+2),(3, 19, 1), (4, 1, 1),(4, 2, 1),(4, 3, 1),(4, 5, 1),(4, 6, 1),(4, 10, 1),(4,
+11, 1),(4, 14, 1),(4, 18, 1),(4, 19, 1), (5, 0, 1),(5, 2, 1),(5, 5, 1),(5, 7,
+1),(5, 10, 1),(5, 12, 1),(5, 16, 1),(5, 18, 1),(5, 19, 2), (6, 1, 1),(6, 3,
+1),(6, 12, 2),(6, 13, 1),(6, 14, 2),(6, 15, 1),(6, 16, 1),(6, 17, 1), (7, 0,
+1),(7, 2, 1),(7, 4, 1),(7, 5, 1),(7, 7, 2),(7, 8, 1),(7, 11, 1),(7, 14, 1),(7,
+16, 1), (8, 2, 1),(8, 4, 4),(8, 6, 2),(8, 11, 1),(8, 15, 1),(8, 18, 1),
+(9, 0, 1),(9, 1, 1),(9, 4, 1),(9, 9, 2),(9, 12, 2),(9, 15, 1),(9, 18, 1),(9,
+19, 1);
+
+CREATE TABLE lda_training_odd_voc_size
+(
+    docid INT4,
+    wordid INT4,
+    count INT4
+);
+
+INSERT INTO lda_training_odd_voc_size VALUES
+(0, 0, 2),(0, 3, 2),(0, 5, 1),(0, 7, 1),(0, 8, 1),(0, 9, 1),(0, 11, 1),(0, 13,
+1), (1, 0, 1),(1, 3, 1),(1, 4, 1),(1, 5, 1),(1, 6, 1),(1, 7, 1),(1, 10, 1),(1,
+14, 1),(1, 17, 1),(1, 18, 1), (2, 4, 2),(2, 5, 1),(2, 6, 2),(2, 12, 1),(2, 13,
+1),(2, 15, 1),(2, 18, 2), (3, 0, 1),(3, 1, 2),(3, 12, 3),(3, 16, 1),(3, 17,
+2),(3, 19, 1), (4, 1, 1),(4, 2, 1),(4, 3, 1),(4, 5, 1),(4, 6, 1),(4, 10, 1),(4,
+11, 1),(4, 14, 1),(4, 18, 1),(4, 19, 1), (5, 0, 1),(5, 2, 1),(5, 5, 1),(5, 7,
+1),(5, 10, 1),(5, 12, 1),(5, 16, 1),(5, 18, 1),(5, 19, 2), (6, 1, 1),(6, 3,
+1),(6, 12, 2),(6, 13, 1),(6, 14, 2),(6, 15, 1),(6, 16, 1),(6, 17, 1), (7, 0,
+1),(7, 2, 1),(7, 4, 1),(7, 5, 1),(7, 7, 2),(7, 8, 1),(7, 11, 1),(7, 14, 1),(7,
+16, 1), (8, 2, 1),(8, 4, 4),(8, 6, 2),(8, 11, 1),(8, 15, 1),(8, 18, 1),
+(9, 0, 1),(9, 1, 1),(9, 4, 1),(9, 9, 2),(9, 12, 2),(9, 15, 1),(9, 18, 1),(9,
+19, 1),(9, 20, 1);
+
+
+CREATE TABLE lda_testing
+(
+    docid INT4,
+    wordid INT4,
+    count INT4
+);
+
+INSERT INTO lda_testing VALUES
+(0, 0, 2),(0, 8, 1),(0, 9, 1),(0, 10, 1),(0, 12, 1),(0, 15, 2),(0, 18, 1),(0,
+19, 1), (1, 0, 1),(1, 2, 1),(1, 5, 1),(1, 7, 1),(1, 12, 2),(1, 13, 1),(1, 16,
+1),(1, 17, 1),(1, 18, 1), (2, 0, 1),(2, 1, 1),(2, 2, 1),(2, 3, 1),(2, 4, 1),(2,
+5, 1),(2, 6, 1),(2, 12, 1),(2, 14, 1),(2, 18, 1), (3, 2, 2),(3, 6, 2),(3, 7,
+1),(3, 9, 1),(3, 11, 2),(3, 14, 1),(3, 15, 1), (4, 1, 1),(4, 2, 2),(4, 3,
+1),(4, 5, 2),(4, 6, 1),(4, 11, 1),(4, 18, 2);
+
+---------------------------------------------------------------------------
+-- Test
+---------------------------------------------------------------------------
+SELECT lda_train(
+    'lda_training',
+    'lda_model',
+    'lda_output_data',
+    20, 5, 2, 10, 0.01);
+
+
+SELECT lda_parse_model(model, voc_size, topic_num) AS parsed_model
+FROM lda_model;
+
+
+
+SELECT
+    assert(
+        topic_num IS NOT NULL AND topic_num = 5,
+        'topic_num should be 5!'
+    ),
+    assert(
+        sum_of_topic_counts IS NOT NULL AND sum_of_word_counts IS NOT NULL
+        AND sum_of_topic_counts = sum_of_word_counts,
+        'sum_of_topic_counts (' || sum_of_topic_counts::text || ') != sum_of_word_counts (' || sum_of_word_counts::text || ')!'
+    )
+FROM
+(
+    SELECT
+        array_upper((parsed_model).total_topic_counts, 1) AS topic_num,
+        array_sum((parsed_model).total_topic_counts) AS sum_of_topic_counts
+    FROM
+    (
+        SELECT lda_parse_model(model, voc_size, topic_num) AS parsed_model
+        FROM lda_model
+    ) subq_parsed_model
+) subq_topic_num,
+(
+    SELECT sum(count) AS sum_of_word_counts FROM lda_training
+)subq_word_count;
+
+SELECT lda_predict(
+    'lda_testing',
+    'lda_model',
+    'lda_pred');
+
+SELECT lda_predict(
+    'lda_testing',
+    'lda_model',
+    'lda_pred_2',
+    5);
+
+SELECT lda_get_perplexity(
+    'lda_model',
+    'lda_pred');
+
+SELECT __lda_util_index_sort(array[1, 4, 2, 3]);
+SELECT __lda_util_transpose(array[[1, 2, 3],[4, 5, 6]]);
+SELECT assert(count(*) = 2, 'Wrong answer: __lda_util_unnest_transpose()')
+FROM
+(
+    SELECT __lda_util_unnest_transpose(array[1, 2, 0, 4, 5, 0]::bigint[], 3, 2)
+) subq;
+SELECT assert(count(*) = 3, 'Wrong answer: __lda_util_unnest()')
+FROM
+(
+    SELECT __lda_util_unnest(array[1, 2, 0, 4, 5, 0]::bigint[], 3, 2)
+) subq;
+SELECT __lda_util_norm_with_smoothing(array[1, 4, 2, 3], 0.1);
+
+-- no words hit ceiling
+SELECT
+    assert(
+        __lda_check_count_ceiling(
+            array[0, 0, 0, 0]::bigint[],
+            2,
+            2)
+        IS NULL,
+        '__lda_check_count_ceiling should return NULL for [0, 0, 0, 0]');
+-- length: 1
+SELECT
+    assert(
+        __lda_check_count_ceiling(
+            array[-1, -1, -1, -1]::bigint[],
+            2,
+            2)
+        IS NOT NULL,
+        '__lda_check_count_ceiling should not return NULL for [-1, -1, -1, -1]');
+
+SELECT lda_get_topic_desc(
+    'lda_model',
+    'lda_vocab',
+    'topic_word_desc',
+    5);
+
+SELECT lda_get_topic_word_count(
+    'lda_model',
+    'topic_word_count');
+
+SELECT lda_get_word_topic_count(
+    'lda_model',
+    'topic_word_count_2');
+
+SELECT *
+FROM __lda_util_norm_vocab('lda_vocab', 'norm_lda_vocab');
+
+SELECT *
+FROM __lda_util_norm_dataset('lda_testing', 'norm_lda_vocab',
+'norm_lda_data');
+
+SELECT *
+FROM __lda_util_conorm_data('lda_testing', 'lda_vocab',
+'norm_lda_data_2', 'norm_lda_vocab_2');
+
+-- both voc_size and topic_num are odd or even
+SELECT lda_train(
+    'lda_training_odd_voc_size',
+    'lda_model_odd_voc_size_even_topic_num',
+    'lda_output_odd_voc_size_even_topic_num',
+    21, 6, 2, 3, 0.01);
+
+SELECT lda_train(
+    'lda_training_odd_voc_size',
+    'lda_model_odd_voc_size_odd_topic_num',
+    'lda_output_odd_voc_size_odd_topic_num',
+    21, 5, 2, 3, 0.01);
+
+SELECT lda_train(
+    'lda_training',
+    'lda_model_even_voc_size_even_topic_num',
+    'lda_output_even_voc_size_even_topic_num',
+    20, 6, 2, 3, 0.01);

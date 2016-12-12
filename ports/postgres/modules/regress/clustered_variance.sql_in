@@ -1,0 +1,1070 @@
+
+m4_include(`SQLCommon.m4')
+
+/**
+@addtogroup grp_clustered_errors
+
+<div class="toc"><b>Contents</b>
+<ul>
+<li><a href="#train_linregr">Clustered Variance Linear Regression Training Function</a></li>
+<li><a href="#train_logregr">Clustered Variance Logistic Regression Training Function</a></li>
+<li><a href="#train_mlogregr">Clustered Variance Multinomial Logistic Regression Training Function</a></li>
+<li><a href="#train_cox">Clustered Variance for Cox Proportional Hazards model</a></li>
+<li><a href="#examples">Examples</a></li>
+<li><a href="#notes">Notes</a></li>
+<li><a href="#background">Technical Background</a></li>
+<li><a href="#related">Related Topics</a></li>
+</ul>
+</div>
+
+@brief Calculates clustered variance for linear, logistic, and multinomial logistic regression models, and Cox proportional hazards models.
+
+The Clustered Variance module adjusts standard errors for clustering. For
+example, replicating a dataset 100 times should not increase the precision of
+parameter estimates, but performing this procedure with the IID assumption
+will actually do this. Another example is in economics of education research,
+it is reasonable to expect that the error terms for children in the same class
+are not independent. Clustering standard errors can correct for this.
+
+The MADlib Clustered Variance module includes functions to calculate linear,
+logistic, and multinomial logistic regression problems.
+
+
+@anchor train_linregr
+@par Clustered Variance Linear Regression Training Function
+
+The clustered variance linear regression training function has the following syntax.
+<pre class="syntax">
+clustered_variance_linregr ( source_table,
+                             out_table,
+                             dependent_varname,
+                             independent_varname,
+                             clustervar,
+                             grouping_cols
+                           )
+</pre>
+\b Arguments
+<dl class="arglist">
+  <dt>source_table</dt>
+  <dd>TEXT. The name of the table containing the input data.</dd>
+
+  <dt>out_table</dt>
+  <dd>VARCHAR. Name of the generated table containing the output model. The output table contains the following columns.
+    <table class="output">
+      <tr>
+        <th>coef</th>
+        <td>DOUBLE PRECISION[]. Vector of the coefficients of the regression.</td>
+      </tr>
+      <tr>
+        <th>std_err</th>
+        <td>DOUBLE PRECISION[]. Vector of the standard error of the coefficients.</td>
+      </tr>
+      <tr>
+        <th>t_stats</th>
+        <td>DOUBLE PRECISION[]. Vector of the t-stats of the coefficients.</td>
+      </tr>
+      <tr>
+        <th>p_values</th>
+        <td>DOUBLE PRECISION[]. Vector of the p-values of the coefficients.</td>
+      </tr>
+    </table>
+
+    A summary table named \<out_table\>_summary is also created, which is the
+    same as the summary table created by linregr_train function.
+    Please refer to the documentation for linear regression for details.
+
+  </dd>
+
+<dt>dependent_varname</dt>
+<dd>TEXT. An expression to evaluate for the dependent variable.</dd>
+<dt>independent_varname</dt>
+<dd>TEXT. An Expression to evalue for the independent variables.</dd>
+<dt>clustervar</dt>
+<dd>TEXT. A comma-separated list of the columns to use as cluster variables.</dd>
+<dt>grouping_cols (optional)</dt>
+
+<dd>TEXT, default: NULL. <em>Not currently implemented. Any non-NULL value is ignored.</em> An expression list used to group the input dataset into discrete groups, running one regression per group. Similar to the SQL GROUP BY clause. When this value is null, no grouping is used and a single result model is generated.</dd>
+</dl>
+
+@anchor train_logregr
+@par Clustered Variance Logistic Regression Training Function
+
+The clustered variance logistic regression training function has the following syntax.
+<pre class="syntax">
+clustered_variance_logregr( source_table,
+                            out_table,
+                            dependent_varname,
+                            independent_varname,
+                            clustervar,
+                            grouping_cols,
+                            max_iter,
+                            optimizer,
+                            tolerance,
+                            verbose_mode
+                          )
+</pre>
+\b Arguments
+<dl class="arglist">
+    <dt>source_table</dt>
+    <dd>TEXT. The name of the table containing the input data.</dd>
+    <dt>out_table</dt>
+    <dd>VARCHAR. Name of the generated table containing the output model. The output table has the following columns:
+      <table class="output">
+        <tr>
+          <th>coef</th>
+          <td>Vector of the coefficients of the regression.</td>
+        </tr>
+        <tr>
+          <th>std_err</th>
+          <td>Vector of the standard error of the coefficients.</td>
+        </tr>
+        <tr>
+          <th>z_stats</th>
+          <td>Vector of the z-stats of the coefficients.</td>
+        </tr>
+        <tr>
+          <th>p_values</th>
+          <td>Vector of the p-values of the coefficients.</td>
+        </tr>
+      </table>
+
+      A summary table named \<out_table\>_summary is also created, which is the
+      same as the summary table created by logregr_train function. Please refer
+      to the documentation for logistic regression for details.
+
+    </dd>
+    <dt>dependent_varname</dt>
+    <dd>TEXT. An expression to evaluate for the dependent variable.</dd>
+    <dt>independent_varname</dt>
+    <dd>TEXT. An expression to evaluate for the independent variable.</dd>
+    <dt>clustervar</dt>
+    <dd>TEXT. A comma-separated list of columns to use as cluster variables.</dd>
+    <dt>grouping_cols (optional)</dt>
+    <dd>TEXT, default: NULL. <em>Not yet implemented. Any non-NULL values are ignored.</em> An expression list used to group the input dataset into discrete groups, running one regression per group. Similar to the SQL GROUP BY clause. When this value is NULL, no grouping is used and a single result model is generated.</dd>
+    <dt>max_iter (optional)</dt>
+    <dd>INTEGER, default: 20. The maximum number of iterations that are allowed.</dd>
+    <dt>optimizer (optional)</dt>
+    <dd>TEXT, default: 'irls'. The name of the optimizer to use:
+      <ul><li> 'newton' or 'irls': Iteratively reweighted least squares</li>
+          <li>'cg': conjugate gradient</li>
+          <li>'igd': incremental gradient descent.</li>
+      </ul>
+  </dd>
+  <dt>tolerance (optional)</dt>
+  <dd>FLOAT8, default: 0.0001 The difference between log-likelihood values in
+    successive iterations that should indicate convergence. A zero disables the
+    convergence criterion, so that execution stops after \e n Iterations have
+    completed.</dd>
+    <dt>verbose_mode (optional)</dt>
+    <dd>BOOLEAN, default FALSE. Provides verbose_mode output of the results of training.</dd>
+</dl>
+
+
+@anchor train_mlogregr
+@par Clustered Variance Multinomial Logistic Regression Training Function
+
+<pre class="syntax">
+clustered_variance_mlogregr( source_table,
+                             out_table,
+                             dependent_varname,
+                             independent_varname,
+                             cluster_varname,
+                             ref_category,
+                             grouping_cols,
+                             optimizer_params,
+                             verbose_mode
+                           )
+</pre>
+\b Arguments
+<dl class="arglist">
+    <dt>source_table</dt>
+    <dd>TEXT. The name of the table containing the input data.</dd>
+    <dt>out_table</dt>
+    <dd>TEXT. The name of the table where the regression model will be stored.
+    The output table has the following columns:
+        <table class="output">
+          <tr>
+            <th>category</th>
+            <td>The category.</td>
+          </tr>
+          <tr>
+            <th>ref_category</th>
+            <td>The refererence category used for modeling.</td>
+          </tr>
+          <tr>
+            <th>coef</th>
+            <td>Vector of the coefficients of the regression.</td>
+          </tr>
+          <tr>
+            <th>std_err</th>
+            <td>Vector of the standard error of the coefficients.</td>
+          </tr>
+          <tr>
+            <th>z_stats</th>
+            <td>Vector of the z-stats of the coefficients.</td>
+          </tr>
+          <tr>
+            <th>p_values</th>
+            <td>Vector of the p-values of the coefficients.</td>
+          </tr>
+        </table>
+
+        A summary table named \<out_table\>_summary is also created, which is the same as the summary table created by mlogregr_train function. Please refer to the documentation for multinomial logistic regression for details.
+    </dd>
+    <dt>dependent_varname</dt>
+    <dd>TEXT. An expression to evaluate for the dependent variable.</dd>
+    <dt>independent_varname</dt>
+    <dd>TEXT. An expression to evaluate for the independent variable.</dd>
+    <dt>cluster_varname</dt>
+    <dd>TEXT. A comma-separated list of columns to use as cluster variables.</dd>
+    <dt>ref_category (optional)</dt>
+    <dd>INTEGER. Reference category in the range [0, num_category).</dd>
+    <dt>groupingvarng_cols (optional)</dt>
+    <dd>TEXT, default: NULL. <em>Not yet implemented. Any non-NULL values are ignored.</em> A comma-separated list of columns to use as grouping variables.</dd>
+    <dt>optimizer_params (optional)</dt>
+    <dd>TEXT, default: NULL, which uses the default values of optimizer parameters: max_iter=20, optimizer='newton', tolerance=1e-4. It should be a string that contains pairs of 'key=value' separated by commas.</dd>
+    <dt>verbose_mode (optional)</dt>
+    <dd>BOOLEAN, default FALSE. If TRUE, detailed information is printed when computing logistic regression.</dd>
+</dl>
+
+@anchor train_cox
+@par Clustered Variance for Cox Proportional Hazards model
+
+The clustered robust variance estimator function for the Cox
+Proportional Hazards model has the following syntax.
+<pre class="syntax">
+clustered_variance_coxph(model_table, output_table, clustervar)
+</pre>
+
+\b Arguments
+<dl class="arglist">
+    <dt>model_table</dt>
+    <dd>TEXT. The name of the model table, which is exactaly the same as the 'output_table' parameter of coxph_train() function.</dd>
+    <dt>output_table</dt>
+    <dd>TEXT. The name of the table where the output is saved. It has the following columns:
+        <table class="output">
+            <tr>
+                <th>coef</th>
+                <td>FLOAT8[]. Vector of the coefficients.</td>
+            </tr>
+            <tr>
+                <th>loglikelihood</th>
+                <td>FLOAT8. Log-likelihood value of the MLE estimate.</td>
+            </tr>
+            <tr>
+                <th>std_err</th>
+                <td>FLOAT8[]. Vector of the standard error of the coefficients.</td>
+            </tr>
+            <tr>
+                <th>clustervar</th>
+                <td>TEXT. A comma-separated list of columns to use as cluster variables.</td>
+            </tr>
+            <tr>
+                <th>clustered_se</th>
+                <td>FLOAT8[]. Vector of the robust standard errors of the coefficients.</td>
+            </tr>
+            <tr>
+                <th>clustered_z</th>
+                <td>FLOAT8[]. Vector of the robust z-stats of the coefficients.</td>
+            </tr>
+            <tr>
+                <th>clustered_p</th>
+                <td>FLOAT8[]. Vector of the robust p-values of the coefficients.</td>
+            </tr>
+            <tr>
+                <th>hessian</th>
+                <td>FLOAT8[]. The Hessian matrix.</td>
+            </tr>
+        </table>
+    </dd>
+    <dt>clustervar</dt>
+    <dd>TEXT. A comma-separated list of columns to use as cluster variables.</dd>
+</dl>
+
+@anchor examples
+@par Examples
+
+-# View online help for the clustered variance linear regression function.
+<pre class="example">
+SELECT madlib.clustered_variance_linregr();
+</pre>
+
+-# Run the linear regression function and view the results.
+<pre class="example">
+DROP TABLE IF EXISTS out_table;
+SELECT madlib.clustered_variance_linregr( 'abalone',
+                                          'out_table',
+                                          'rings',
+                                          'ARRAY[1, diameter, length, width]',
+                                          'sex',
+                                          NULL
+                                        );
+SELECT * FROM out_table;
+</pre>
+
+-# View online help for the clustered variance logistic regression function.
+<pre class="example">
+SELECT madlib.clustered_variance_logregr();
+</pre>
+
+-# Run the logistic regression function and view the results.
+<pre class="example">
+DROP TABLE IF EXISTS out_table;
+SELECT madlib.clustered_variance_logregr( 'abalone',
+                                          'out_table',
+                                          'rings < 10',
+                                          'ARRAY[1, diameter, length, width]',
+                                          'sex'
+                                        );
+SELECT * FROM out_table;
+</pre>
+
+-# View online help for the clustered variance multinomial logistic regression function.
+<pre class="example">
+SELECT madlib.clustered_variance_mlogregr();
+</pre>
+
+-# Run the multinomial logistic regression and view the results.
+<pre class="example">
+DROP TABLE IF EXISTS out_table;
+SELECT madlib.clustered_variance_mlogregr( 'abalone',
+                                           'out_table',
+                                           'CASE WHEN rings < 10 THEN 1 ELSE 0 END',
+                                           'ARRAY[1, diameter, length, width]',
+                                           'sex',
+                                           0
+                                         );
+SELECT * FROM out_table;
+</pre>
+
+-# Run the Cox Proportional Hazards regression and compute the clustered robust estimator.
+<pre class="example">
+DROP TABLE IF EXISTS lung_cl_out;
+DROP TABLE IF EXISTS lung_out;
+DROP TABLE IF EXISTS lung_out_summary;
+SELECT madlib.coxph_train('lung',
+                          'lung_out',
+                          'time',
+                          'array[age, "ph.ecog"]',
+                          'TRUE',
+                          NULL,
+                          NULL);
+SELECT madlib.clustered_variance_coxph('lung_out',
+                                       'lung_cl_out',
+                                       '"ph.karno"');
+SELECT * FROM lung_cl_out;
+</pre>
+
+@anchor notes
+@par Notes
+
+- Note that we need to manually include an intercept term in the independent
+variable expression. The NULL value of <em>groupingvar</em> means that there
+is no grouping in the calculation.
+
+
+@anchor background
+@par Technical Background
+
+Assume that the data can be separated into \f$m\f$ clusters. Usually this
+can be done by grouping the data table according to one or multiple
+columns.
+
+The estimator has a similar form to the usual sandwich estimator
+\f[
+  S(\vec{c}) = B(\vec{c}) M(\vec{c}) B(\vec{c})
+\f]
+
+The bread part is the same as Huber-White sandwich estimator
+\f{eqnarray}{
+  B(\vec{c}) & = & \left(-\sum_{i=1}^{n} H(y_i, \vec{x}_i,
+    \vec{c})\right)^{-1}\\
+  & = & \left(-\sum_{i=1}^{n}\frac{\partial^2 l(y_i, \vec{x}_i,
+      \vec{c})}{\partial c_\alpha \partial c_\beta}\right)^{-1}
+\f}
+where \f$H\f$ is the hessian matrix, which is the second derivative of the
+target function
+\f[
+  L(\vec{c}) = \sum_{i=1}^n l(y_i, \vec{x}_i, \vec{c})\ .
+\f]
+
+The meat part is different
+\f[
+  M(\vec{c}) = \bf{A}^T\bf{A}
+\f]
+where the \f$m\f$-th row of \f$\bf{A}\f$ is
+\f[
+  A_m = \sum_{i\in G_m}\frac{\partial
+      l(y_i,\vec{x}_i,\vec{c})}{\partial \vec{c}}
+\f]
+where \f$G_m\f$ is the set of rows that belong to the same cluster.
+
+We can compute the quantities of \f$B\f$ and \f$A\f$ for each cluster during
+one scan through the data table in an aggregate function. Then sum over all
+clusters to the full \f$B\f$ and \f$A\f$ in the outside of the aggregate function.
+At last, the matrix mulplitications are done in a separate function on the
+master node.
+
+When multinomial logistic regression is computed before the multinomial
+clustered variance calculation, it uses a default reference category of zero and
+ the regression coefficients are included in the output table.  The
+regression coefficients in the output are in the same order as multinomial
+logistic regression function, which is described below.
+For a problem with
+\f$ K \f$ dependent variables \f$ (1, ..., K) \f$ and \f$ J \f$ categories \f$ (0, ..., J-1)
+\f$, let \f$ {m_{k,j}} \f$ denote the coefficient for dependent variable \f$ k
+\f$ and  category \f$ j \f$.   The output is \f$ {m_{k_1, j_0}, m_{k_1, j_1}
+\ldots m_{k_1, j_{J-1}}, m_{k_2, j_0}, m_{k_2, j_1} \ldots m_{k_K, j_{J-1}}} \f$.
+The order is NOT CONSISTENT with the  multinomial regression marginal effect
+calculation with function <em>marginal_mlogregr</em>.   This is deliberate
+because the interfaces of all multinomial regressions (robust, clustered, ...)
+will be moved to match that used in marginal.
+
+@anchor literature
+@literature
+
+[1] Standard, Robust, and Clustered Standard Errors Computed in R, http://diffuseprior.wordpress.com/2012/06/15/standard-robust-and-clustered-standard-errors-computed-in-r/
+
+@anchor related
+@par Related Topics
+File clustered_variance.sql_in documenting the clustered variance SQL functions.
+
+File clustered_variance_coxph.sql_in documenting the clustered variance for Cox proportional hazards SQL functions.
+
+
+@internal
+@sa Namespace \ref madlib::modules::regress
+    documenting the implementation in C++
+@endinternal
+*/
+
+------------------------------------------------------------------------
+
+/**
+ * @brief Compute the clustered errors
+ *
+ * @param source_table Data table name
+ * @param out_table The result table
+ * @param depvar Dependent variable expression
+ * @param indvar Independent variable expression
+ * @param clustervar The expressions used to clustering
+ * @param grouping_col The names of grouping columns
+ */
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_linregr (
+    source_table    TEXT,
+    out_table      TEXT,
+    depvar          TEXT,
+    indvar          TEXT,
+    clustervar      TEXT,
+    grouping_col    TEXT
+) RETURNS VOID AS $$
+    PythonFunction(regress, clustered_variance, clustered_variance_linregr)
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_linregr (
+    source_table        TEXT,
+    out_table      TEXT,
+    depvar          TEXT,
+    indvar          TEXT,
+    clustervar      TEXT
+) RETURNS VOID AS $$
+BEGIN
+    PERFORM MADLIB_SCHEMA.clustered_variance_linregr(source_table, out_table, depvar, indvar, clustervar, NULL);
+END;
+$$ LANGUAGE plpgsql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+------------------------------------------------------------------------
+
+-- print quick help messages
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_linregr (
+) RETURNS TEXT AS $$
+    PythonFunction(regress, clustered_variance, clustered_variance_linregr_help)
+$$ LANGUAGE plpythonu IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+------------------------------------------------------------------------
+
+-- print quick help messages
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_linregr (
+    msg         TEXT
+) RETURNS TEXT AS $$
+    PythonFunction(regress, clustered_variance, clustered_variance_linregr_help)
+$$ LANGUAGE plpythonu IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+------------------------------------------------------------------------
+-- Aggregate function --
+DROP TYPE IF EXISTS MADLIB_SCHEMA.__clustered_agg_result CASCADE;
+CREATE TYPE MADLIB_SCHEMA.__clustered_agg_result AS (
+    meatvec     DOUBLE PRECISION[],
+    breadvec    DOUBLE PRECISION[]
+);
+
+------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__clustered_err_lin_transition (
+    state MADLIB_SCHEMA.bytea8,
+    y DOUBLE PRECISION,
+    x DOUBLE PRECISION[],
+    coef DOUBLE PRECISION[]
+) RETURNS MADLIB_SCHEMA.bytea8 AS
+    'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__clustered_err_lin_merge (
+    state1 MADLIB_SCHEMA.bytea8,
+    state2 MADLIB_SCHEMA.bytea8
+) RETURNS MADLIB_SCHEMA.bytea8 AS
+    'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__clustered_err_lin_final (
+    state MADLIB_SCHEMA.bytea8
+) RETURNS MADLIB_SCHEMA.__clustered_agg_result AS
+    'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+------------------------
+
+CREATE AGGREGATE MADLIB_SCHEMA.__clustered_err_lin_step (
+    /* depvar   */      DOUBLE PRECISION,
+    /* indvar   */      DOUBLE PRECISION[],
+    /* coef     */      DOUBLE PRECISION[]) (
+    m4_ifdef(`__POSTGRESQL__', `', `prefunc=MADLIB_SCHEMA.__clustered_err_lin_merge,')
+    SFUNC = MADLIB_SCHEMA.__clustered_err_lin_transition,
+    STYPE = MADLIB_SCHEMA.bytea8,
+    FINALFUNC = MADLIB_SCHEMA.__clustered_err_lin_final,
+    INITCOND = ''
+);
+
+------------------------------------------------------------------------
+
+DROP TYPE IF EXISTS MADLIB_SCHEMA.__clustered_lin_result CASCADE;
+CREATE TYPE MADLIB_SCHEMA.__clustered_lin_result AS (
+    coef      DOUBLE PRECISION[],
+    std_err   DOUBLE PRECISION[],
+    t_stats   DOUBLE PRECISION[],
+    p_values  DOUBLE PRECISION[]
+);
+
+-- Compute the t-stats and p-values
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__clustered_lin_compute_stats (
+    coef                DOUBLE PRECISION[],
+    meatvec             DOUBLE PRECISION[],
+    breadvec            DOUBLE PRECISION[],
+    mcluster            INTEGER,
+    numRows             INTEGER
+) RETURNS MADLIB_SCHEMA.__clustered_lin_result AS
+    'MODULE_PATHNAME', 'clustered_lin_compute_stats'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+------------------------------------------------------------------------
+------------------------------------------------------------------------
+
+-- Supporting PostgreSQL sum over array
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__array_add (
+    x                   DOUBLE PRECISION[],
+    y                   DOUBLE PRECISION[]
+) RETURNS DOUBLE PRECISION[] AS $$
+DECLARE
+    a int;
+    b int;
+    i int;
+    res double precision[];
+BEGIN
+    res = x;
+
+    a := array_lower (y, 1);
+    b := array_upper (y, 1);
+
+    IF a IS NOT NULL THEN
+      FOR i IN a .. b LOOP
+        res[i] := coalesce(res[i],0) + y[i];
+      END LOOP;
+    END IF;
+
+    RETURN res;
+END;
+$$ LANGUAGE plpgsql STRICT IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.__array_sum(DOUBLE PRECISION[]);
+CREATE AGGREGATE MADLIB_SCHEMA.__array_sum (
+    /* x */             DOUBLE PRECISION[]
+) (
+    SFunc = MADLIB_SCHEMA.__array_add,
+    SType = DOUBLE PRECISION[],
+    m4_ifdef(`__POSTGRESQL__', `', `prefunc = MADLIB_SCHEMA.__array_add,')
+    InitCond = '{}'
+);
+
+------------------------------------------------------------------------
+------------------------------------------------------------------------
+-- Logistic clustered standard errors
+------------------------------------------------------------------------
+------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_logregr (
+    source_table        TEXT,
+    out_table      TEXT,
+    depvar          TEXT,
+    indvar          TEXT,
+    clustervar      TEXT,
+    grouping_col    TEXT,
+    max_iter        INTEGER,
+    optimizer       TEXT,
+    tolerance       DOUBLE PRECISION,
+    verbose_mode         BOOLEAN
+) RETURNS VOID AS $$
+    PythonFunction(regress, clustered_variance, clustered_variance_logregr)
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_logregr (
+    source_table        TEXT,
+    out_table      TEXT,
+    depvar          TEXT,
+    indvar          TEXT,
+    clustervar      TEXT
+) RETURNS VOID AS $$
+BEGIN
+    PERFORM MADLIB_SCHEMA.clustered_variance_logregr(source_table, out_table, depvar, indvar, clustervar,
+                                                    NULL, 20, 'irls', 0.0001, False);
+END;
+$$ LANGUAGE plpgsql
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_logregr (
+    source_table        TEXT,
+    out_table      TEXT,
+    depvar          TEXT,
+    indvar          TEXT,
+    clustervar      TEXT,
+    grouping_col    TEXT
+) RETURNS VOID AS $$
+BEGIN
+    PERFORM MADLIB_SCHEMA.clustered_variance_logregr(source_table, out_table, depvar, indvar, clustervar,
+                                                    grouping_col, 20, 'irls', 0.0001, False);
+END;
+$$ LANGUAGE plpgsql
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_logregr (
+    source_table        TEXT,
+    out_table      TEXT,
+    depvar          TEXT,
+    indvar          TEXT,
+    clustervar      TEXT,
+    grouping_col    TEXT,
+    max_iter        INTEGER
+) RETURNS VOID AS $$
+BEGIN
+    PERFORM MADLIB_SCHEMA.clustered_variance_logregr(source_table, out_table, depvar, indvar, clustervar,
+                                                    grouping_col, max_iter, 'irls', 0.0001, False);
+END;
+$$ LANGUAGE plpgsql
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_logregr (
+    source_table        TEXT,
+    out_table      TEXT,
+    depvar          TEXT,
+    indvar          TEXT,
+    clustervar      TEXT,
+    grouping_col    TEXT,
+    max_iter        INTEGER,
+    optimizer       TEXT
+) RETURNS VOID AS $$
+BEGIN
+    PERFORM MADLIB_SCHEMA.clustered_variance_logregr(source_table, out_table, depvar, indvar, clustervar,
+                                                    grouping_col, max_iter, optimizer, 0.0001, False);
+END;
+$$ LANGUAGE plpgsql
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_logregr (
+    source_table        TEXT,
+    out_table      TEXT,
+    depvar          TEXT,
+    indvar          TEXT,
+    clustervar      TEXT,
+    grouping_col    TEXT,
+    max_iter        INTEGER,
+    optimizer       TEXT,
+    tolerance       DOUBLE PRECISION
+) RETURNS VOID AS $$
+BEGIN
+    PERFORM MADLIB_SCHEMA.clustered_variance_logregr(source_table, out_table, depvar, indvar, clustervar,
+                                                    grouping_col, max_iter, optimizer, tolerance, False);
+END;
+$$ LANGUAGE plpgsql
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+------------------------------------------------------------------------
+
+-- print quick help messages
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_logregr (
+) RETURNS TEXT AS $$
+    PythonFunction(regress, clustered_variance, clustered_variance_logregr_help)
+$$ LANGUAGE plpythonu IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+------------------------------------------------------------------------
+
+-- print quick help messages
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_logregr (
+    msg         TEXT
+) RETURNS TEXT AS $$
+    PythonFunction(regress, clustered_variance, clustered_variance_logregr_help)
+$$ LANGUAGE plpythonu IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+------------------------------------------------------------------------
+-- Aggregate function --
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__clustered_err_log_transition (
+    state MADLIB_SCHEMA.bytea8,
+    y BOOLEAN,
+    x DOUBLE PRECISION[],
+    coef DOUBLE PRECISION[]
+) RETURNS MADLIB_SCHEMA.bytea8 AS
+    'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__clustered_err_log_merge (
+    state1 MADLIB_SCHEMA.bytea8,
+    state2 MADLIB_SCHEMA.bytea8
+) RETURNS MADLIB_SCHEMA.bytea8 AS
+    'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__clustered_err_log_final (
+    state MADLIB_SCHEMA.bytea8
+) RETURNS MADLIB_SCHEMA.__clustered_agg_result AS
+    'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+------------------------
+
+CREATE AGGREGATE MADLIB_SCHEMA.__clustered_err_log_step (
+    /* depvar   */      BOOLEAN,
+    /* indvar   */      DOUBLE PRECISION[],
+    /* coef     */      DOUBLE PRECISION[]) (
+    m4_ifdef(`__POSTGRESQL__', `', `prefunc=MADLIB_SCHEMA.__clustered_err_log_merge,')
+    SFUNC = MADLIB_SCHEMA.__clustered_err_log_transition,
+    STYPE = MADLIB_SCHEMA.bytea8,
+    FINALFUNC = MADLIB_SCHEMA.__clustered_err_log_final,
+    INITCOND = ''
+);
+
+------------------------------------------------------------------------
+
+DROP TYPE IF EXISTS MADLIB_SCHEMA.__clustered_log_result CASCADE;
+CREATE TYPE MADLIB_SCHEMA.__clustered_log_result AS (
+    coef      DOUBLE PRECISION[],
+    std_err   DOUBLE PRECISION[],
+    z_stats   DOUBLE PRECISION[],
+    p_values  DOUBLE PRECISION[]
+);
+
+-- Compute the t-stats and p-values
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__clustered_log_compute_stats (
+    coef                DOUBLE PRECISION[],
+    meatvec             DOUBLE PRECISION[],
+    breadvec            DOUBLE PRECISION[],
+    mcluster            INTEGER,
+    numRows             INTEGER
+) RETURNS MADLIB_SCHEMA.__clustered_log_result AS
+    'MODULE_PATHNAME', 'clustered_log_compute_stats'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+------------------------------------------------------------------------
+------------------------------------------------------------------------
+-- Multi-Logistic clustered standard errors
+------------------------------------------------------------------------
+------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_mlogregr (
+    source_table        TEXT,           -- name of input table
+    out_table           TEXT,           -- name of output table
+    dependent_varname   TEXT,           -- name of dependent variable
+    independent_varname TEXT,           -- name of independent variable
+    cluster_varname     TEXT,           -- clustering columns
+    ref_category        INTEGER,        -- reference category (default 0)
+    grouping_cols       TEXT,           -- grouping columns (PLACEHOLDER) (default NULL)
+    optimizer_params    TEXT,           -- a comma-separated string with optimizer parameters
+    verbose_mode        BOOLEAN         -- printing warning message or not (default False)
+) RETURNS VOID AS $$
+    PythonFunction(regress, clustered_variance, clustered_variance_mlogregr)
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_mlogregr (
+    source_table        TEXT,
+    out_table           TEXT,
+    dependent_varname   TEXT,
+    independent_varname TEXT,
+    cluster_varname     TEXT,
+    ref_category        INTEGER,
+    grouping_cols       TEXT,            -- grouping columns (PLACEHOLDER) (default NULL)
+    optimizer_params    TEXT             -- a comma-separated string with optimizer parameters
+) RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.clustered_variance_mlogregr(
+        $1, $2, $3, $4, $5, $6, $7, $8, False);
+$$ LANGUAGE sql
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_mlogregr (
+    source_table        TEXT,
+    out_table           TEXT,
+    dependent_varname   TEXT,
+    independent_varname TEXT,
+    cluster_varname     TEXT,
+    ref_category        INTEGER,
+    grouping_cols       TEXT            -- grouping columns (PLACEHOLDER) (default NULL)
+) RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.clustered_variance_mlogregr(
+        $1, $2, $3, $4, $5, $6, $7, 'max_iter=20, optimizer=irls, tolerance=0.0001', False);
+$$ LANGUAGE sql
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_mlogregr (
+    source_table        TEXT,
+    out_table           TEXT,
+    dependent_varname   TEXT,
+    independent_varname TEXT,
+    cluster_varname     TEXT,
+    ref_category        INTEGER
+) RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.clustered_variance_mlogregr(
+        $1, $2, $3, $4, $5, $6, NULL, 'max_iter=20, optimizer=irls, tolerance=0.0001', False);
+$$ LANGUAGE sql
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_mlogregr (
+    source_table        TEXT,
+    out_table           TEXT,
+    dependent_varname   TEXT,
+    independent_varname TEXT,
+    cluster_varname     TEXT
+) RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.clustered_variance_mlogregr(
+        $1, $2, $3, $4, $5, 0, NULL, 'max_iter=20, optimizer=irls, tolerance=0.0001', False);
+$$ LANGUAGE sql
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+------------------------------------------------------------------------
+
+-- print quick help messages
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_mlogregr (
+) RETURNS TEXT AS $$
+    PythonFunction(regress, clustered_variance, clustered_variance_mlogregr_help)
+$$ LANGUAGE plpythonu IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+------------------------------------------------------------------------
+
+-- print quick help messages
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_mlogregr (
+    msg         TEXT
+) RETURNS TEXT AS $$
+    PythonFunction(regress, clustered_variance, clustered_variance_mlogregr_help)
+$$ LANGUAGE plpythonu IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+------------------------------------------------------------------------
+-- Aggregate function --
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__clustered_err_mlog_transition (
+    state MADLIB_SCHEMA.bytea8,
+    y INTEGER,
+    x DOUBLE PRECISION[],
+    coef DOUBLE PRECISION[],
+    num_cat INTEGER,
+    ref_cat INTEGER
+) RETURNS MADLIB_SCHEMA.bytea8 AS
+    'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__clustered_err_mlog_merge (
+    state1 MADLIB_SCHEMA.bytea8,
+    state2 MADLIB_SCHEMA.bytea8
+) RETURNS MADLIB_SCHEMA.bytea8 AS
+    'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__clustered_err_mlog_final (
+    state MADLIB_SCHEMA.bytea8
+) RETURNS MADLIB_SCHEMA.__clustered_agg_result AS
+    'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+------------------------
+
+CREATE AGGREGATE MADLIB_SCHEMA.__clustered_err_mlog_step (
+    /* depvar   */      INTEGER,
+    /* indvar   */      DOUBLE PRECISION[],
+    /* coef     */      DOUBLE PRECISION[],
+    /* num_cat */       INTEGER,
+    /* reference_cat */ INTEGER) (
+    m4_ifdef(`__POSTGRESQL__', `', `prefunc=MADLIB_SCHEMA.__clustered_err_mlog_merge,')
+    SFUNC = MADLIB_SCHEMA.__clustered_err_mlog_transition,
+    STYPE = MADLIB_SCHEMA.bytea8,
+    FINALFUNC = MADLIB_SCHEMA.__clustered_err_mlog_final,
+    INITCOND = ''
+);
+
+------------------------------------------------------------------------
+
+-- Compute the t-stats and p-values
+DROP TYPE IF EXISTS MADLIB_SCHEMA.__clustered_mlog_result CASCADE;
+CREATE TYPE MADLIB_SCHEMA.__clustered_mlog_result AS (
+    coef      DOUBLE PRECISION[],
+    std_err   DOUBLE PRECISION[],
+    z_stats   DOUBLE PRECISION[],
+    p_values  DOUBLE PRECISION[]
+);
+
+-- Compute the t-stats and p-values
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__clustered_mlog_compute_stats (
+    coef                DOUBLE PRECISION[],
+    meatvec             DOUBLE PRECISION[],
+    breadvec            DOUBLE PRECISION[],
+    mcluster            INTEGER,
+    numRows             INTEGER
+) RETURNS MADLIB_SCHEMA.__clustered_mlog_result AS
+    'MODULE_PATHNAME', 'clustered_mlog_compute_stats'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+-- DEPRECATED NOTICE -----------------------------------------------------------
+-- The below functions has been deprecated and should be removed in next major
+--    version update
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_mlogregr(
+    source_table        TEXT,
+    out_table           TEXT,
+    dependent_varname   TEXT,
+    independent_varname TEXT,
+    cluster_varname     TEXT,
+    ref_category        INTEGER,
+    grouping_cols       TEXT,
+    max_iter            INTEGER,
+    optimizer           VARCHAR,
+    tolerance           DOUBLE PRECISION,
+    verbose_mode             BOOLEAN
+)
+RETURNS VOID AS $$
+BEGIN
+    RAISE WARNING $sql$This function has been deprecated.
+        Please run "SELECT MADLIB_SCHEMA.clustered_variance_mlogregr('usage');"
+        to get the latest function usage.$sql$;
+    PERFORM MADLIB_SCHEMA.clustered_variance_mlogregr(
+        $1, $2, $3, $4, $5, $6, $7,
+        'max_iter=' || cast($8 as text) ||
+        ', optimizer=' || $9 ||
+        ', tolerance=' || cast($10 as text),
+        $11);
+END;
+$$ LANGUAGE PLPGSQL VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_mlogregr(
+    source_table        TEXT,
+    out_table           TEXT,
+    dependent_varname   TEXT,
+    independent_varname TEXT,
+    cluster_varname     TEXT,
+    ref_category        INTEGER,
+    grouping_cols       TEXT,
+    max_iter            INTEGER,
+    optimizer           VARCHAR,
+    tolerance           DOUBLE PRECISION
+)
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.clustered_variance_mlogregr(
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, FALSE);
+$$ LANGUAGE sql
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_mlogregr(
+    source_table        TEXT,
+    out_table           TEXT,
+    dependent_varname   TEXT,
+    independent_varname TEXT,
+    cluster_varname     TEXT,
+    ref_category        INTEGER,
+    grouping_cols       TEXT,
+    max_iter            INTEGER,
+    optimizer           VARCHAR
+)
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.clustered_variance_mlogregr(
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, 0.0001, FALSE);
+$$ LANGUAGE sql
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.clustered_variance_mlogregr(
+    source_table        TEXT,
+    out_table           TEXT,
+    dependent_varname   TEXT,
+    independent_varname TEXT,
+    cluster_varname     TEXT,
+    ref_category        INTEGER,
+    grouping_cols       TEXT,
+    max_iter            INTEGER
+)
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.clustered_variance_mlogregr(
+        $1, $2, $3, $4, $5, $6, $7, $8, 'irls', 0.0001, FALSE);
+$$ LANGUAGE sql
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+-- END OF DEPRECATED NOTICE -----------------------------------------------------------

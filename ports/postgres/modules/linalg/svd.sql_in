@@ -1,0 +1,1077 @@
+/* ----------------------------------------------------------------------- *//**
+ *
+ * @file svd.sql_in
+ *
+ * @brief Singular Value Decomposition
+ *
+ * @sa For a brief introduction to singular value decomposition, see the module
+ *     description \ref grp_svd.
+ *
+ *//* ----------------------------------------------------------------------- */
+
+m4_include(`SQLCommon.m4')
+
+/**
+@addtogroup grp_svd
+
+<div class="toc"><b>Contents</b>
+<ul>
+<li><a href="#syntax">SVD Functions</a></li>
+<li><a href="#output">Output Tables</a></li>
+<li><a href="#examples">Examples</a><li>
+<li><a href="#background">Technical Background</a></li>
+</ul>
+</div>
+
+@brief Performs factorization of dense and sparse matrices.
+
+In linear algebra, the singular value decomposition (SVD) is a factorization of
+a real or complex matrix, with many useful applications in signal processing and
+statistics.
+
+Let \f$A\f$ be a \f$mxn\f$ matrix, where \f$m \ge n\f$. Then \f$A\f$ can be
+decomposed as follows:
+\f[
+    A = U \Sigma V^T,
+\f]
+where \f$U\f$ is a \f$m \times n\f$ orthonormal matrix,
+\f$\Sigma\f$ is a \f$n \times n\f$ diagonal matrix, and \f$V\f$ is an
+\f$n \times n\f$ orthonormal matrix. The diagonal elements of \f$\Sigma\f$ are
+called the <em>singular values</em>.
+
+@anchor syntax
+@par SVD Functions
+
+SVD factorizations are provided for dense and sparse matrices.
+In addition, a native implementation is provided for very sparse
+matrices for improved performance.
+
+<b>SVD Function for Dense Matrices</b>
+
+<pre class="syntax">
+svd( source_table,
+     output_table_prefix,
+     row_id,
+     k,
+     n_iterations,
+     result_summary_table
+);
+</pre>
+\b Arguments
+<dl class="arglist">
+    <dt>source_table</dt>
+    <dd>TEXT. Source table name (dense matrix).
+
+    The table contains a \c row_id column that identifies each row,
+    with numbering starting from 1.
+    The other columns contain the data for the matrix.
+    There are two possible dense formats as illustrated by the 2x2 matrix example
+    below.  You can use either of these dense formats:
+    -# <pre class="example">
+            row_id     col1     col2
+row1         1           1         0
+row2         2           0         1
+    </pre>
+    -# <pre class="example">
+        row_id     row_vec
+row1        1       {1, 0}
+row2        2       {0, 1}
+    </pre>
+    </dd>
+    <dt>output_table_prefix</dt>
+    <dd>TEXT. Prefix for output tables. See 
+    <a href="#output">Output Tables</a> below for a  description 
+    of the convention used.</dd>
+    <dt>row_id</dt>
+    <dd>TEXT. ID for each row.</dd>
+    <dt>k</dt>
+    <dd>INTEGER. Number of singular values to compute.</dd>
+    <dt>n_iterations (optional). </dd>
+    <dd>INTEGER. Number of iterations to run.  
+    @note The number of iterations must be 
+    in the range [k, column dimension], where 
+    k is number of singular values.</dd>
+    <dt>result_summary_table (optional)</dt>
+    <dd>TEXT. The name of the table to store the result summary.</dd>
+</dl>
+
+<hr>
+<b>SVD Function for Sparse Matrices</b>
+
+Use this function for matrices that are represented in the sparse-matrix
+format (example below).  <b>Note that the input matrix is converted to a 
+dense matrix before the SVD operation, for efficient computation reasons. </b>
+
+<pre class="syntax">
+svd_sparse( source_table,
+            output_table_prefix,
+            row_id,
+            col_id,
+            value,
+            row_dim,
+            col_dim,
+            k,
+            n_iterations,
+            result_summary_table
+          );
+</pre>
+\b Arguments
+<dl class="arglist">
+<dt>source_table</dt>
+<dd>TEXT. Source table name (sparse matrix).
+
+A sparse matrix is represented using the row and column indices for each
+non-zero entry of the matrix. This representation is useful for matrices
+containing multiple zero elements. Below is an example of a sparse 4x7 matrix
+with just 6 out of 28 entries being non-zero. The dimensionality of the matrix is
+inferred using the max value in <em>row</em> and <em>col</em> columns. Note the
+last entry is included (even though it is 0) to provide the dimensionality of the
+matrix, indicating that the 4th row and 7th column contain all zeros.
+<pre class="example">
+ row_id | col_id | value
+--------+--------+-------
+      1 |      1 |     9
+      1 |      5 |     6
+      1 |      6 |     6
+      2 |      1 |     8
+      3 |      1 |     3
+      3 |      2 |     9
+      4 |      7 |     0
+(6 rows)
+</pre>
+</dd>
+
+<dt>output_table_prefix</dt>
+<dd>TEXT. Prefix for output tables. See 
+    <a href="#output">Output Tables</a> below for a  description 
+    of the convention used. </dd>
+<dt>row_id</dt>
+<dd>TEXT. Name of the column containing the row index for each entry in sparse matrix.</dd>
+<dt>col_id</dt>
+<dd>TEXT. Name of the column containing the column index for each entry in sparse matrix.</dd>
+<dt>value</dt>
+<dd>TEXT. Name of column containing the non-zero values of the sparse matrix.</dd>
+<dt>row_dim</dt>
+<dd>INTEGER. Number of rows in matrix.</dd>
+<dt>col_dim</dt>
+<dd>INTEGER. Number of columns in matrix.</dd>
+<dt>k</dt>
+<dd>INTEGER. Number of singular values to compute.</dd>
+<dt>n_iterations (optional)</dt>
+<dd>INTEGER. Number of iterations to run.  
+    @note The number of iterations must be 
+    in the range [k, column dimension], where 
+    k is number of singular values.</dd>
+<dt>result_summary_table (optional)</dt>
+<dd>TEXT. The name of the table to store the result summary.</dd>
+</dl>
+
+
+<hr>
+<b>Native Implementation for Sparse Matrices</b>
+
+Use this function for matrices that are represented in the sparse-matrix
+format (see sparse matrix example above). This function uses the 
+native sparse representation while computing the SVD.
+@note Note that this function should be favored if the matrix is 
+highly sparse, since it computes very sparse matrices 
+efficiently. </b>
+
+<pre class="syntax">
+svd_sparse_native( source_table,
+                   output_table_prefix,
+                   row_id,
+                   col_id,
+                   value,
+                   row_dim,
+                   col_dim,
+                   k,
+                   n_iterations,
+                   result_summary_table
+                 );
+</pre>
+\b Arguments
+<dl class="arglist">
+    <dt>source_table</dt>
+    <dd>TEXT. Source table name (sparse matrix - see example above).</dd>
+    <dt>output_table_prefix</dt>
+    <dd>TEXT. Prefix for output tables. See 
+    <a href="#output">Output Tables</a> below for a  description 
+    of the convention used.</dd>
+    <dt>row_id</dt>
+    <dd>TEXT. ID for each row.</dd>
+    <dt>col_id</dt>
+    <dd>TEXT. ID for each column.</dd>
+    <dt>value</dt>
+    <dd>TEXT. Non-zero values of the sparse matrix.</dd>
+    <dt>row_dim</dt>
+    <dd>INTEGER. Row dimension of sparse matrix.</dd>
+    <dt>col_dim</dt>
+    <dd>INTEGER. Col dimension of sparse matrix.</dd>
+    <dt>k</dt>
+    <dd>INTEGER. Number of singular values to compute.</dd>
+    <dt>n_iterations (optional)</dt>
+    <dd>INTEGER. Number of iterations to run.  
+    @note The number of iterations must be 
+    in the range [k, column dimension], where 
+    k is number of singular values.</dd>
+    <dt>result_summary_table (optional)</dt>
+    <dd>TEXT. Table name to store result summary.</dd>
+</dl>
+
+<hr>
+
+@anchor output
+@par Output Tables
+
+Output for eigenvectors/values is in the following three tables:
+   - Left singular matrix: Table is named \<output_table_prefix\>_u  (e.g. ‘netflix_u’)
+   - Right singular matrix: Table is named \<output_table_prefix\>_v  (e.g. ‘netflix_v’)
+   - Singular values: Table is named \<output_table_prefix\>_s  (e.g. ‘netflix_s’)
+
+The left and right singular vector tables are of the format:
+<table class="output">
+    <tr>
+        <th>row_id</th>
+        <td>INTEGER. The ID corresponding to each eigenvalue (in decreasing order).</td>
+    </tr>
+    <tr>
+        <th>row_vec</th>
+        <td>FLOAT8[]. Singular vector elements for this row_id. Each array is of size k.</td>
+    </tr>
+</table>
+
+The singular values table is in sparse table format, since only the diagonal
+elements of the matrix are non-zero:
+<table class="output">
+    <tr>
+        <th>row_id</th>
+        <td>INTEGER. \e i for \e ith eigenvalue.</td>
+    </tr>
+    <tr>
+        <th>col_id</th>
+        <td>INTEGER. \e i for \e ith eigenvalue (same as row_id).</td>
+    </tr>
+    <tr>
+        <th>value</th>
+        <td>FLOAT8. Eigenvalue.</td>
+    </tr>
+</table>
+All \c row_id and \c col_id in the above tables start from 1.
+
+
+The result summary table has the following columns:
+<table class="output">
+    <tr>
+        <th>rows_used</th>
+        <td>INTEGER. Number of rows used for SVD calculation.</td>
+    </tr>
+    <tr>
+        <th>exec_time</th>
+        <td>FLOAT8. Total time for executing SVD.</td>
+    </tr>
+    <tr>
+        <th>iter</th>
+        <td>INTEGER. Total number of iterations run.</td>
+    </tr>
+    <tr>
+        <th>recon_error</th>
+        <td>FLOAT8. Total quality score (i.e. approximation quality) for this set of orthonormal basis.</td>
+    </tr>
+    <tr>
+        <th>relative_recon_error</th>
+        <td>FLOAT8. Relative quality score.</td>
+    </tr>
+</table>
+
+In the result summary table, the reconstruction error is computed as \f$
+\sqrt{mean((X - USV^T)_{ij}^2)} \f$, where the average is over all elements of
+the matrices. The relative reconstruction error is then computed as ratio of the
+reconstruction error and \f$ \sqrt{mean(X_{ij}^2)} \f$.
+
+
+@anchor examples
+@examp
+
+-# View online help for the SVD function.
+<pre class="example">
+SELECT madlib.svd();
+</pre>
+
+-# Create an input dataset (dense matrix).
+<pre class="example">
+DROP TABLE IF EXISTS mat, mat_sparse, svd_summary_table, svd_u, svd_v, svd_s;
+CREATE TABLE mat (
+    row_id integer,
+    row_vec double precision[]
+);
+INSERT INTO mat VALUES
+(1,'{396,840,353,446,318,886,15,584,159,383}'),
+(2,'{691,58,899,163,159,533,604,582,269,390}'), 
+(3,'{293,742,298,75,404,857,941,662,846,2}'),
+(4,'{462,532,787,265,982,306,600,608,212,885}'),
+(5,'{304,151,337,387,643,753,603,531,459,652}'),
+(6,'{327,946,368,943,7,516,272,24,591,204}'),
+(7,'{877,59,260,302,891,498,710,286,864,675}'),
+(8,'{458,959,774,376,228,354,300,669,718,565}'),
+(9,'{824,390,818,844,180,943,424,520,65,913}'),
+(10,'{882,761,398,688,761,405,125,484,222,873}'),
+(11,'{528,1,860,18,814,242,314,965,935,809}'),
+(12,'{492,220,576,289,321,261,173,1,44,241}'),
+(13,'{415,701,221,503,67,393,479,218,219,916}'),
+(14,'{350,192,211,633,53,783,30,444,176,932}'),
+(15,'{909,472,871,695,930,455,398,893,693,838}'),
+(16,'{739,651,678,577,273,935,661,47,373,618}');
+</pre>
+
+-# Run SVD function for a dense matrix.
+<pre class="example">
+SELECT madlib.svd( 'mat',       -- Input table
+                   'svd',       -- Output table prefix
+                   'row_id',    -- Column name with row index 
+                   10,          -- Number of singular values to compute
+                   NULL,        -- Use default number of iterations
+                   'svd_summary_table'  -- Result summary table
+                 );
+</pre>
+-# Print out the singular values and the summary table.  For the singular values:
+<pre class="example">
+SELECT * FROM svd_s ORDER BY row_id;
+</pre>
+Result:
+<pre class="result">
+ row_id | col_id |      value       
+&nbsp;--------+--------+------------------
+      1 |      1 | 6475.67225281804
+      2 |      2 | 1875.18065580415
+      3 |      3 | 1483.25228429636
+      4 |      4 | 1159.72262897427
+      5 |      5 | 1033.86092570574
+      6 |      6 | 948.437358703966
+      7 |      7 | 795.379572772455
+      8 |      8 | 709.086240684469
+      9 |      9 | 462.473775959371
+     10 |     10 | 365.875217945698
+     10 |     10 |                 
+(11 rows)
+</pre>
+For the summary table:
+<pre class="example">
+SELECT * FROM svd_summary_table;
+</pre>
+Result:
+<pre class="result">
+ rows_used | exec_time (ms) | iter |    recon_error    | relative_recon_error 
+&nbsp;-----------+----------------+------+-------------------+----------------------
+        16 |        1332.47 |   10 | 4.36920148766e-13 |    7.63134130332e-16
+(1 row)
+</pre>
+-# Create a sparse matrix by running the \ref matrix_sparsify() utility function on the dense matrix.
+<pre class="example">
+SELECT madlib.matrix_sparsify('mat', 
+                              'row=row_id, val=row_vec',
+                              'mat_sparse',
+                              'row=row_id, col=col_id, val=value');
+</pre>
+
+-# Run the SVD function for a sparse matrix.
+<pre class="example">
+SELECT madlib.svd_sparse( 'mat_sparse',   -- Input table
+                          'svd',          -- Output table prefix
+                          'row_id',       -- Column name with row index 
+                          'col_id',       -- Column name with column index 
+                          'value',        -- Matrix cell value
+                          16,             -- Number of rows in matrix
+                          10,             -- Number of columns in matrix    
+                          10              -- Number of singular values to compute
+                          );
+</pre>
+
+-# Run the SVD function for a very sparse matrix.
+<pre class="example">
+SELECT madlib.svd_sparse_native ( 'mat_sparse',   -- Input table
+                          'svd',          -- Output table prefix
+                          'row_id',       -- Column name with row index 
+                          'col_id',       -- Column name with column index 
+                          'value',        -- Matrix cell value
+                          16,             -- Number of rows in matrix
+                          10,             -- Number of columns in matrix    
+                          10              -- Number of singular values to compute
+                          );
+</pre>
+@anchor background
+@par Technical Background
+In linear algebra, the singular value decomposition (SVD) is a factorization of
+a real or complex matrix, with many useful applications in signal processing and
+statistics.
+Let \f$A\f$ be a \f$m \times n\f$ matrix, where \f$m \ge n\f$. Then \f$A\f$ can be
+decomposed as follows:
+\f[
+    A = U \Sigma V^T,
+\f]
+where \f$U\f$ is a \f$m \times  n\f$ orthonormal matrix,
+\f$\Sigma\f$ is a \f$n \times n\f$ diagonal matrix, and \f$V\f$ is an
+\f$n \times  n\f$ orthonormal matrix. The diagonal elements of \f$\Sigma\f$ are
+called the <em>singular values</em>.
+It is possible to formulate the problem of computing the singular triplets
+(\f$\sigma_i, u_i, v_i\f$) of \f$A\f$ as an eigenvalue problem involving a Hermitian
+matrix related to \f$A\f$. There are two possible ways of achieving this:
+-# With the cross product matrix, \f$A^TA\f$ and \f$AA^T\f$
+-# With the cyclic matrix
+      \f[
+          H(A) =
+      \begin{bmatrix}
+      0   & A\\
+      A^* & 0
+      \end{bmatrix}
+      \f]
+The singular values are the nonnegative square roots of the eigenvalues of the
+cross product matrix. This approach may imply a severe loss of accuracy in the
+smallest singular values. The cyclic matrix approach is an alternative that
+avoids this problem, but at the expense of significantly increasing the cost of
+the computation.
+Computing the cross product matrix explicitly is not recommended, especially in
+the case of sparse A. Bidiagonalization was proposed by Golub and Kahan
+[citation?] as a way of tridiagonalizing the cross product matrix without
+forming it explicitly.
+Consider the following decomposition
+\f[    A = P B Q^T, \f]
+where \f$P\f$ and \f$Q\f$ are unitary matrices and \f$B\f$ is an \f$m \times n\f$
+upper bidiagonal matrix. Then the tridiagonal matrix \f$B*B\f$ is unitarily
+similar to \f$A*A\f$. Additionally, specific methods exist that compute the
+singular values of \f$B\f$ without forming \f$B*B\f$. Therefore, after computing the SVD of B,
+\f[
+    B = X\Sigma Y^T,
+\f]
+it only remains to compute the SVD of the original matrix with \f$U = PX\f$ and \f$V = QY\f$.
+*/
+
+-- -----------------------------------------------------------------------
+-- Main function for SVD (Dense format)
+-- -----------------------------------------------------------------------
+/*
+@brief Compute an singular value decomposition for a dense matrix stored in a
+        database table
+*/
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.svd(
+    source_table            TEXT,       -- Source table name (dense array-format matrix)
+    output_table_prefix     TEXT,       -- Prefix for output tables
+    row_id                  TEXT,       -- ID for each row
+    k                       INTEGER,    -- Number of singular vectors to compute
+    n_iterations            INTEGER,    -- Iteration number of Lanczos
+    result_summary_table    TEXT        -- Table name to store result summary
+)
+RETURNS VOID AS $$
+    PythonFunctionBodyOnly(`linalg', `svd')
+    return svd.svd(
+        schema_madlib, source_table, output_table_prefix,
+        row_id, k, n_iterations, result_summary_table)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+-- -----------------------------------------------------------------------
+-- Main function for SVD (Block format)
+-- Each row in the input table is a triple: <row_id, col_id, block>
+-- -----------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.svd_block(
+    source_table            TEXT,       -- Source table name (dense block-format matrix)
+    output_table_prefix     TEXT,       -- Prefix for output tables
+    k                       INTEGER,    -- Number of singular vectors to compute
+    n_iterations            INTEGER,    -- Iteration number of Lanczos
+    result_summary_table    TEXT        -- Table name to store result summary
+)
+RETURNS VOID AS $$
+    PythonFunctionBodyOnly(`linalg', `svd')
+    return svd.svd_block(
+        schema_madlib, source_table, output_table_prefix, k,
+        n_iterations, result_summary_table)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.svd_block(
+    source_table            TEXT,       -- Source table name (dense block-format matrix)
+    output_table_prefix     TEXT,       -- Prefix for output tables
+    k                       INTEGER,    -- Number of singular vectors to compute
+    n_iterations            INTEGER     -- Iteration number of Lanczos
+)
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.svd_block($1, $2, $3, $4, NULL)
+$$ LANGUAGE SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.svd_block(
+    source_table            TEXT,       -- Source table name (dense block-format matrix)
+    output_table_prefix     TEXT,       -- Prefix for output tables
+    k                       INTEGER     -- Number of singular vectors to compute
+)
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.svd_block($1, $2, $3, NULL, NULL)
+$$ LANGUAGE SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+-- -----------------------------------------------------------------------
+-- Main Function for SVD (sparse format)
+-- -----------------------------------------------------------------------
+/*
+@brief Compute an singular value decomposition for a sparse matrix stored in a
+        database table
+        ('input_table', 'output_table_prefix', ’row_id', ’col_id', 'value',
+          row_dim, col_dim, k, 'result_summary_table')
+*/
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.svd_sparse(
+    source_table            TEXT,    -- Source table name (dense matrix)
+    output_table_prefix     TEXT,    -- Prefix for output tables
+    row_id                  TEXT,    -- Name of ‘row_id’ column in sparse matrix representation
+    col_id                  TEXT,    -- Name of 'col_id' column in sparse matrix representation
+    val_id                  TEXT,    -- Name of 'val_id' column in sparse matrix representation
+    row_dim                 INTEGER, -- row dimension of sparse matrix
+    col_dim                 INTEGER, -- col dimension of sparse matrix
+    k                       INTEGER, -- Number of singular vectors with dominant singular values, sorted decreasingly
+    n_iterations            INTEGER, -- Iteration number of Lanczos
+    result_summary_table    TEXT     -- Table name to store result summary
+)
+RETURNS VOID AS $$
+    PythonFunctionBodyOnly(`linalg', `svd')
+    return svd.svd_sparse(
+        schema_madlib, source_table, output_table_prefix,
+        row_id, col_id, val_id, row_dim, col_dim, k,
+        n_iterations, result_summary_table)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.svd_sparse_native(
+    source_table            TEXT,    -- Source table name (dense matrix)
+    output_table_prefix     TEXT,    -- Prefix for output tables
+    row_id                  TEXT,    -- Name of ‘row_id’ column in sparse matrix representation
+    col_id                  TEXT,    -- Name of 'col_id' column in sparse matrix representation
+    val_id                  TEXT,    -- Name of 'val_id' column in sparse matrix representation
+    row_dim                 INTEGER, -- row dimension of sparse matrix
+    col_dim                 INTEGER, -- col dimension of sparse matrix
+    k                       INTEGER, -- Number of singular vectors with dominant singular values,
+                                     --      sorted decreasingly
+    n_iterations            INTEGER, -- Iteration number of Lanczos
+    result_summary_table    TEXT     -- Table name to store result summary
+)
+RETURNS VOID AS $$
+    PythonFunctionBodyOnly(`linalg', `svd')
+    return svd.svd_sparse_native(
+        schema_madlib, source_table, output_table_prefix,
+        row_id, col_id, val_id, row_dim, col_dim, k, n_iterations, result_summary_table)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+-- -----------------------------------------------------------------------
+-- Overloaded functions for optional parameters
+-- -----------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.svd(
+    source_table            TEXT,    -- Source table name (dense matrix)
+    output_table_prefix     TEXT,    -- Prefix for output tables
+    row_id                  TEXT,    -- ID for each row
+    k                       INTEGER  -- Number of singular vectors to compute
+)
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.svd($1, $2, $3, $4, NULL, NULL)
+$$ LANGUAGE SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.svd_sparse(
+    source_table            TEXT,    -- Source table name (dense matrix)
+    output_table_prefix     TEXT,    -- Prefix for output tables
+    row_id                  TEXT,    -- Name of ‘row_id’ column in sparse matrix representation
+    col_id                  TEXT,    -- Name of 'col_id' column in sparse matrix representation
+    val_id                  TEXT,    -- Name of 'val_id' column in sparse matrix representation
+    row_dim                 INTEGER, -- row dimension of sparse matrix
+    col_dim                 INTEGER, -- col dimension of sparse matrix
+    k                       INTEGER  -- Number of singular vectors with dominant singular values, sorted decreasingly
+)
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.svd_sparse($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL)
+$$ LANGUAGE SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.svd(
+    source_table            TEXT,    -- Source table name (dense matrix)
+    output_table_prefix     TEXT,    -- Prefix for output tables
+    row_id                  TEXT,    -- ID for each row
+    k                       INTEGER, -- Number of singular vectors to compute
+    n_iterations            INTEGER  -- Iteration number of Lanczos
+)
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.svd($1, $2, $3, $4, $5, NULL)
+$$ LANGUAGE SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.svd_sparse(
+    source_table            TEXT,    -- Source table name (dense matrix)
+    output_table_prefix     TEXT,    -- Prefix for output tables
+    row_id                  TEXT,    -- Name of ‘row_id’ column in sparse matrix representation
+    col_id                  TEXT,    -- Name of 'col_id' column in sparse matrix representation
+    val_id                  TEXT,    -- Name of 'val_id' column in sparse matrix representation
+    row_dim                 INTEGER, -- row dimension of sparse matrix
+    col_dim                 INTEGER, -- col dimension of sparse matrix
+    k                       INTEGER, -- Number of singular vectors with dominant singular values, sorted decreasingly
+    n_iterations            INTEGER  -- Iteration number of Lanczos
+)
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.svd_sparse($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL)
+$$ LANGUAGE SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.svd_sparse_native(
+    source_table            TEXT,    -- Source table name (dense matrix)
+    output_table_prefix     TEXT,    -- Prefix for output tables
+    row_id                  TEXT,    -- Name of ‘row_id’ column in sparse matrix representation
+    col_id                  TEXT,    -- Name of 'col_id' column in sparse matrix representation
+    val_id                  TEXT,    -- Name of 'val_id' column in sparse matrix representation
+    row_dim                 INTEGER, -- row dimension of sparse matrix
+    col_dim                 INTEGER, -- col dimension of sparse matrix
+    k                       INTEGER  -- Number of singular vectors with dominant singular
+                                     --   values, sorted decreasingly
+)
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.svd_sparse_native($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL)
+$$ LANGUAGE SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.svd_sparse_native(
+    source_table            TEXT,    -- Source table name (dense matrix)
+    output_table_prefix     TEXT,    -- Prefix for output tables
+    row_id                  TEXT,    -- Name of ‘row_id’ column in sparse matrix representation
+    col_id                  TEXT,    -- Name of 'col_id' column in sparse matrix representation
+    val_id                  TEXT,    -- Name of 'val_id' column in sparse matrix representation
+    row_dim                 INTEGER, -- row dimension of sparse matrix
+    col_dim                 INTEGER, -- col dimension of sparse matrix
+    k                       INTEGER, -- Number of singular vectors with dominant singular values, sorted decreasingly
+    n_iterations            INTEGER  -- Iteration number of Lanczos
+)
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.svd_sparse_native($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL)
+$$ LANGUAGE SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');;
+
+---------------------------------------------------------------------
+------------------------Internal Functions---------------------------
+---------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.__svd_unit_vector
+(
+    dim INT     -- Dimension of the vector
+)
+-- RETURNS MADLIB_SCHEMA.__svd_unit_vector_result
+RETURNS DOUBLE PRECISION[]
+AS 'MODULE_PATHNAME', 'svd_unit_vector'
+LANGUAGE C STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+DROP TYPE IF EXISTS MADLIB_SCHEMA.__svd_lanczos_result CASCADE;
+CREATE TYPE MADLIB_SCHEMA.__svd_lanczos_result AS
+(
+    scalar  FLOAT8,     -- alpha/beta
+    vec     FLOAT8[]    -- pvec/qvec
+);
+
+---------------------------------------------------------------------
+-------Common Aggregator for Computing Lanzcos P/Q Vectors-----------
+---------------------------------------------------------------------
+
+---------------------------------------------------------------------
+---------------------For Array-Format Matrix-------------------------
+---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.__svd_lanczos_sfunc
+(
+    state       FLOAT8[],       -- A * q_j OR A_Trans * p_(j-1)
+    row_id      INT,            -- Matrix row id
+    row_array   FLOAT8[],       -- Matrix row array
+    vector      FLOAT8[],       -- q_j OR p_(j-1)
+    dimension   INT             -- row_dim OR col_dim
+)
+RETURNS FLOAT8[]
+AS 'MODULE_PATHNAME', 'svd_lanczos_sfunc'
+LANGUAGE C
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+---------------------------------------------------------------------
+---------------------For Block-Format Matrix-------------------------
+---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.__svd_block_lanczos_sfunc
+(
+    state       FLOAT8[],       -- A * q_j OR A_Trans * p_(j-1)
+    row_id      INT4,           -- Matrix block row id
+    col_id      INT4,           -- Matrix block col id
+    block       FLOAT8[],       -- Matrix block
+    vector      FLOAT8[],       -- q_j OR p_(j-1)
+    dimension   INT4            -- row_dim OR col_dim
+)
+RETURNS FLOAT8[]
+AS 'MODULE_PATHNAME', 'svd_block_lanczos_sfunc'
+LANGUAGE C
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+---------------------------------------------------------------------
+---------------------For Sparse-Format Matrix-------------------------
+---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.__svd_sparse_lanczos_sfunc
+(
+    state       FLOAT8[],       -- A * q_j OR A_Trans * p_(j-1)
+    row_id      INT4,           -- row id
+    col_id      INT4,           -- col id
+    val         FLOAT8,         -- value
+    vector      FLOAT8[],       -- q_j OR p_(j-1)
+    dimension   INT4            -- row_dim OR col_dim
+)
+RETURNS FLOAT8[]
+AS 'MODULE_PATHNAME', 'svd_sparse_lanczos_sfunc'
+LANGUAGE C
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.__svd_lanczos_prefunc
+(
+    state1  FLOAT8[],
+    state2  FLOAT8[]
+)
+RETURNS FLOAT8[]
+AS 'MODULE_PATHNAME', 'svd_lanczos_prefunc'
+LANGUAGE C STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+---------------------------------------------------------------------
+---------------------For Array-Format Matrix-------------------------
+---------------------------------------------------------------------
+DROP AGGREGATE IF EXISTS
+MADLIB_SCHEMA.__svd_lanczos_agg
+(
+    INT,        -- Matrix row id
+    FLOAT8[],   -- Matrix row array
+    FLOAT8[],   -- q_j OR p_(j-1)
+    INT         -- row_dim OR col_dim
+);
+
+CREATE AGGREGATE
+MADLIB_SCHEMA.__svd_lanczos_agg
+(
+    INT,        -- Matrix row id
+    FLOAT8[],   -- Matrix row array
+    FLOAT8[],   -- q_j OR p_(j-1)
+    INT         -- row_dim OR col_dim
+)
+(
+    stype = FLOAT8[],
+    sfunc = MADLIB_SCHEMA.__svd_lanczos_sfunc
+    m4_ifdef(
+        `__POSTGRESQL__', `',
+        `, prefunc = MADLIB_SCHEMA.__svd_lanczos_prefunc'
+    )
+);
+
+---------------------------------------------------------------------
+---------------------For Block-Format Matrix-------------------------
+---------------------------------------------------------------------
+DROP AGGREGATE IF EXISTS
+MADLIB_SCHEMA.__svd_block_lanczos_agg
+(
+    INT4,       -- Matrix block row id
+    INT4,       -- Matrix block col id
+    FLOAT8[],   -- Matrix block
+    FLOAT8[],   -- q_j OR p_(j-1)
+    INT4        -- row_dim OR col_dim
+);
+
+CREATE AGGREGATE
+MADLIB_SCHEMA.__svd_block_lanczos_agg
+(
+    INT,        -- Matrix block row id
+    INT4,       -- Matrix block col id
+    FLOAT8[],   -- Matrix row array
+    FLOAT8[],   -- q_j OR p_(j-1)
+    INT         -- row_dim OR col_dim
+)
+(
+    stype = FLOAT8[],
+    --Note that only the sfunc is different
+    sfunc = MADLIB_SCHEMA.__svd_block_lanczos_sfunc
+    m4_ifdef(
+        `__POSTGRESQL__', `',
+        `, prefunc = MADLIB_SCHEMA.__svd_lanczos_prefunc'
+    )
+);
+
+---------------------------------------------------------------------
+---------------------For Sparse-Format Matrix-------------------------
+---------------------------------------------------------------------
+DROP AGGREGATE IF EXISTS
+MADLIB_SCHEMA.__svd_sparse_lanczos_agg
+(
+    INT4,       -- Row ID
+    INT4,       -- Column ID
+    FLOAT8,     -- Value
+    FLOAT8[],   -- q_j OR p_(j-1)
+    INT4        -- row_dim OR col_dim
+);
+
+CREATE AGGREGATE
+MADLIB_SCHEMA.__svd_sparse_lanczos_agg
+(
+    INT4,       -- Row ID
+    INT4,       -- Column ID
+    FLOAT8,     -- Value
+    FLOAT8[],   -- q_j OR p_(j-1)
+    INT4        -- row_dim OR col_dim
+)
+(
+    stype = FLOAT8[],
+    --Note that only the sfunc is different
+    sfunc = MADLIB_SCHEMA.__svd_sparse_lanczos_sfunc
+    m4_ifdef(
+        `__POSTGRESQL__', `',
+        `, prefunc = MADLIB_SCHEMA.__svd_lanczos_prefunc'
+    )
+);
+
+---------------------------------------------------------------------
+--------Postproc Function for Computing Lanzcos P/V Vectors---------
+---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.__svd_lanczos_pvec
+(
+    vector  FLOAT8[],   -- Partial result from the aggregator
+    pvec    FLOAT8[],   -- Previous P vector
+    beta    FLOAT8      -- Previous beta
+)
+RETURNS MADLIB_SCHEMA.__svd_lanczos_result
+AS 'MODULE_PATHNAME', 'svd_lanczos_pvec'
+LANGUAGE C
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.__svd_lanczos_qvec
+(
+    vector  FLOAT8[],   -- Partial result from the aggregator
+    qvec    FLOAT8[],   -- Previous P vector
+    alpha   FLOAT8      -- Previous beta
+)
+RETURNS FLOAT8[]
+AS 'MODULE_PATHNAME', 'svd_lanczos_qvec'
+LANGUAGE C
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+---------------------------------------------------------------------
+-----------------Gram-Schmidt Orthogonilization----------------------
+---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.__svd_gram_schmidt_orthogonalize_sfunc
+(
+    state                   FLOAT8[],
+    vec_unorthogonalized    FLOAT8[],
+    vec_orthogonalized      FLOAT8[]
+)
+RETURNS FLOAT8[]
+AS 'MODULE_PATHNAME', 'svd_gram_schmidt_orthogonalize_sfunc'
+LANGUAGE C
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.__svd_gram_schmidt_orthogonalize_prefunc
+(
+    state1  FLOAT8[],
+    state2  FLOAT8[]
+)
+RETURNS FLOAT8[]
+AS 'MODULE_PATHNAME', 'svd_gram_schmidt_orthogonalize_prefunc'
+LANGUAGE C STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+-- This function will also do the normalization
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.__svd_gram_schmidt_orthogonalize_ffunc
+(
+    state                   FLOAT8[]
+)
+RETURNS MADLIB_SCHEMA.__svd_lanczos_result
+AS 'MODULE_PATHNAME', 'svd_gram_schmidt_orthogonalize_ffunc'
+LANGUAGE C STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+DROP AGGREGATE IF EXISTS
+MADLIB_SCHEMA.__svd_gram_schmidt_orthogonalize_agg
+(
+    FLOAT8[],   -- Unorthogonalized vector
+    FLOAT8[]    -- Orthogonalized vector
+);
+
+CREATE AGGREGATE
+MADLIB_SCHEMA.__svd_gram_schmidt_orthogonalize_agg
+(
+    FLOAT8[],   -- Unorthogonalized vector
+    FLOAT8[]    -- Orthogonalized vector
+)
+(
+    stype = FLOAT8[],
+    sfunc = MADLIB_SCHEMA.__svd_gram_schmidt_orthogonalize_sfunc,
+    finalfunc = MADLIB_SCHEMA.__svd_gram_schmidt_orthogonalize_ffunc
+    m4_ifdef(
+        `__POSTGRESQL__', `',
+        `, prefunc = MADLIB_SCHEMA.__svd_gram_schmidt_orthogonalize_prefunc'
+    )
+);
+
+---------------------------------------------------------------------
+--------------------Lanczos Bidiagonalization------------------------
+---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.__svd_lanczos_bidiagonalize
+(
+    source_table        TEXT,
+    output_table_prefix TEXT,
+    n_iterations        INT,
+    k                   INT,
+    is_block            BOOLEAN
+)
+RETURNS VOID AS $$
+    PythonFunctionBodyOnly(`linalg', `svd')
+    return svd.lanczos_bidiagonalize(
+        schema_madlib, source_table,
+        output_table_prefix, n_iterations, k, is_block)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.__svd_lanczos_bidiagonalize_sparse
+(
+    source_table        TEXT,
+    row_id              TEXT,
+    col_id              TEXT,
+    val                 TEXT,
+    output_table_prefix TEXT,
+    n_iterations        INT,
+    k                   INT
+)
+RETURNS VOID AS $$
+    PythonFunctionBodyOnly(`linalg', `svd')
+    return svd.lanczos_bidiagonalize_sparse(
+        schema_madlib, source_table, row_id, col_id,
+        val, output_table_prefix, n_iterations, k)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+---------------------------------------------------------------------
+-------------------- SVD of Bidiagonal matrix ------------------------
+---------------------------------------------------------------------
+DROP TYPE IF EXISTS MADLIB_SCHEMA.__svd_bidiagonal_matrix_result CASCADE;
+CREATE TYPE MADLIB_SCHEMA.__svd_bidiagonal_matrix_result AS
+(
+    left_matrix     FLOAT8[][],
+    right_matrix    FLOAT8[][],
+    singular_values FLOAT8[]
+);
+
+------------------------------------------------------------------------------
+--The bidiagonal matrix is represented as a triple: <row_ids, col_ids, vals>
+--where:
+--  row_ids is an array of integers representing row_ids of non-zero elements
+--  col_ids is an array of integers representing col_ids of non-zero elements
+--  vals is an array of doubles representing values of non-zero elements
+--Note that we don't need the aggregator to convert the sparse bidiagonal
+--matrix into a dense matrix
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__svd_decompose_bidiag(
+    row_ids INT[],
+    col_ids INT[],
+    vals    FLOAT8[]
+)
+RETURNS MADLIB_SCHEMA.__svd_bidiagonal_matrix_result
+AS 'MODULE_PATHNAME', 'svd_decompose_bidiag'
+LANGUAGE C STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+-----------------------------------------------------------------------
+-- Special Vector-Matrix Multiplication Functions
+-----------------------------------------------------------------------
+/**
+ * Multiplication of a row vector with an in-memory matrix
+ * vector: 1 x l
+ * matrix: l x l
+ * k: Sub-matrix of the size l x k
+ */
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__svd_vec_mult_matrix(
+    vector  FLOAT8[],
+    matrix  FLOAT8[][],
+    k       INT4
+)
+RETURNS FLOAT8[]
+AS 'MODULE_PATHNAME', 'svd_vec_mult_matrix'
+LANGUAGE C STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+DROP TYPE IF EXISTS MADLIB_SCHEMA.__svd_vec_mat_mult_result CASCADE;
+CREATE TYPE MADLIB_SCHEMA.__svd_vec_mat_mult_result AS
+(
+    row_id  INT4,
+    row_vec FLOAT8[]
+);
+
+--Multiplication of a column vector with an in-memory matrix
+--Return a set of m row vector of the size 1 * k
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__svd_vec_trans_mult_matrix_internal(
+    vector  FLOAT8[],   -- m * l row vector
+    matrix  FLOAT8[][], -- l * l in-memory matrix
+    col_id  INT4,       -- Column ID
+    k       INT4        -- Specify the size of submatrix l * k
+)
+RETURNS SETOF MADLIB_SCHEMA.__svd_vec_mat_mult_result
+AS 'MODULE_PATHNAME', 'svd_vec_trans_mult_matrix'
+LANGUAGE C STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+--Multiplication of P/Q vectors with Left/Right Singular Matrix of B
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__svd_vec_trans_mult_matrix(
+    vec_table   TEXT,       -- P/Q column vectors
+    mat_table   TEXT,       -- (svd_output).left_matrix/right_matrix
+    k           INT4,       -- Number of singular values
+    is_left     BOOLEAN,    -- Left matrix?
+    res_table   TEXT        -- Result
+)
+RETURNS VOID AS $$
+    PythonFunctionBodyOnly(`linalg', `svd')
+    return svd.svd_vec_trans_mult_matrix(
+        schema_madlib, vec_table, mat_table, k, res_table, is_left)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+-----------------------------------------------------------------------
+-- Help functions
+-----------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.svd(
+    input_message            TEXT
+)
+RETURNS TEXT AS $$
+PythonFunctionBodyOnly(`linalg', `svd')
+    return svd.svd_help_message(schema_madlib, input_message)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.svd()
+RETURNS TEXT AS $$
+PythonFunctionBodyOnly(`linalg', `svd')
+    return svd.svd_help_message(schema_madlib, None)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');

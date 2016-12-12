@@ -1,0 +1,98 @@
+/* ----------------------------------------------------------------------- *//**
+ *
+ * @file crf_feature_gen.sql_in
+ *
+ * @brief SQL function for POS/NER feature extraction
+ * @date February 2012
+ *
+ * @sa For an introduction to POS/NER feature extraction, see the module
+ *     description \ref grp_crf
+ *//* ----------------------------------------------------------------------- */
+
+m4_include(`SQLCommon.m4')
+
+/**
+ * @brief This function extracts POS/NER features from the training data.
+ *
+ * @param train_segment_tbl Name of table containing all the tokenized training sentences.
+ * @param regex_tbl Name of table containing all the regular expressions to capture regex features.
+ * @param label_tbl Name of the label table containing unique ids and label names.
+ * @param dictionary_tbl Name of table containing the dictionary_tbl.
+ * @param train_feature_tbl features generated from the traning dataset
+ * @param train_featureset_tbl unique feature set generated from the training dataset
+ *
+ */
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.crf_train_fgen(
+        train_segment_tbl text,
+        regex_tbl text,
+        label_tbl text,
+        dictionary_tbl text,
+        train_feature_tbl text,
+        train_featureset_tbl text
+) RETURNS void AS $$
+PythonFunction(crf, crf_feature_gen, generate_train_features)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+/**
+ * @brief This function extracts POS/NER features from the testing data.
+ *
+ * This feature extraction function will produce two factor tables, "m table"
+ * (\a viterbi_mtbl) and "r table" (\a viterbi_rtbl).  The \a viterbi_mtbl
+ * table and \a viterbi_rtbl table are used to calculate the best label
+ * sequence for each sentence.
+ *
+ * - <em>viterbi_mtbl</em> table
+ * encodes the edge features which are solely dependent on upon current label and
+ * previous y value. The m table has three columns which are prev_label, label,
+ * and value respectively.
+ * If the number of labels in \f$ n \f$, then the m factor table will \f$ n^2 \f$
+ * rows.  Each row encodes the transition feature weight value from the previous label
+ * to the current label.
+ *
+ * \a startFeature is considered as a special edge feature which is from the
+ * beginning to the first token.  Likewise, \a endFeature can be considered
+ * as a special edge feature which is from the last token to the very end.
+ * So m table encodes the edgeFeature, startFeature, and endFeature.
+ * If the total number of labels in the label space is 45 from 0 to 44,
+ * then the m factor array is as follows:
+ * <pre>
+ *                  0  1  2  3  4  5...44
+ * startFeature -1  a  a  a  a  a  a...a
+ * edgeFeature   0  a  a  a  a  a  a...a
+ * edgeFeature   1  a  a  a  a  a  a...a
+ * ...
+ * edgeFeature  44  a  a  a  a  a  a...a
+ * endFeature   45  a  a  a  a  a  a...a</pre>
+ *
+ * - viterbi_r table
+ * is related to specific tokens.  It encodes the single state features,
+ * e.g., wordFeature, RegexFeature for all tokens.  The r table is represented
+ * in the following way.
+ * <pre>
+ *        0  1  2  3  4...44
+ * token1 a  a  a  a  a...a
+ * token2 a  a  a  a  a...a</pre>
+ *
+ * @param test_segment_tbl Name of table containing all the tokenized testing sentences.
+ * @param dictionary_tbl Name of table containing the dictionary_tbl.
+ * @param label_tbl Name of table containing the the label space used in POS or other NLP tasks.
+ * @param regex_tbl Name of table containing all the regular expressions to capture regex features.
+ * @param crf_weights_tbl Name of the table containing featureset weights.
+ * @param viterbi_mtbl Name of table to store the m factors.
+ * @param viterbi_rtbl Name of table to store the r factors.
+ *
+ */
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.crf_test_fgen(
+        test_segment_tbl text,
+        dictionary_tbl  text,
+        label_tbl text,
+        regex_tbl text,
+        crf_weights_tbl text,
+        viterbi_mtbl text,
+        viterbi_rtbl text
+) RETURNS VOID AS $$
+PythonFunction(crf, crf_feature_gen, generate_test_features)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');

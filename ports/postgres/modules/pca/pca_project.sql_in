@@ -1,0 +1,430 @@
+/* ----------------------------------------------------------------------- *//**
+ *
+ * @file pca_project.sql_in
+ *
+ * @brief Principal Component Analysis Projection
+ *
+ * @sa For a brief introduction to Principal Component Analysis, see the module
+ *     description \ref grp_pca.
+ *
+ *//* ----------------------------------------------------------------------- */
+
+m4_include(`SQLCommon.m4')
+
+/**
+@addtogroup grp_pca_project
+
+
+<div class ="toc"><b>Contents</b>
+<ul>
+<li class="level1"><a href="#project">Projection Function</a></li>
+<li class="level1"><a href="#examples">Examples</a></li>
+<li class="level1"><a href="#notes">Notes</a></li>
+<li class="level1"><a href="#background">Technical Background</a></li>
+<li class="level1"><a href="#related">Related Topics</a></li>
+</ul>
+</div>
+
+@brief Projects a higher dimensional data point to a lower
+dimensional subspace spanned by principal components learned through the PCA training
+procedure.
+
+
+Principal component projection is a mathematical procedure that projects high
+dimensional data onto a lower dimensional space.  This lower dimensional space
+is defined by the \f$ k  \f$  principal components with the highest variance in
+the training data.  More details on the mathematics of PCA can be found in  \ref
+pca_train and some details about the principal component projection calculations
+can be found in the \ref background "Technical Background".
+
+
+@anchor project
+@par Projection Function
+The projection functions have the following formats:
+<pre class="syntax">
+madlib.pca_project( source_table,
+                    pc_table,
+                    out_table,
+                    row_id,
+                    residual_table,
+                    result_summary_table
+                  )
+</pre>
+and
+<pre class="syntax">
+madlib.pca_sparse_project( source_table,
+                           pc_table,
+                           out_table,
+                           row_id,
+                           col_id,
+                           val_id,
+                           row_dim,
+                           col_dim,
+                           residual_table,
+                           result_summary_table
+                         )
+</pre>
+
+
+@par Arguments
+<DL class="arglist">
+<DT>source_table</DT>
+<DD>TEXT.  Source table name.
+Identical to \ref pca_train, the input data matrix should have  \f$ N \f$ rows
+and \f$ M \f$ columns, where \f$ N \f$ is the number of data points, and \f$ M
+\f$ is the number of features for each data point.
+
+The input table for <em> pca_project </em> is expected to be in the one of the
+two standard  MADlib dense matrix formats, and the sparse input table for  <em>
+pca_sparse_project </em>  should be in the standard MADlib sparse matrix format.
+These formats are described in the documentation for \ref pca_train.</DD>
+
+<DT>pc_table</DT>
+<DD>TEXT.  Table name for the table containing principal components. </DD>
+
+<DT>out_table</DT>
+<DD>TEXT.  Name of the table that will contain the low-dimensional representation of the input data.
+
+The <em>out_table</em> encodes a dense matrix with the projection onto the
+principal components. The table has the following columns:
+
+<table class="output">
+    <tr>
+        <th>row_id</th>
+        <td>Row id of the output matrix.</td>
+    </tr>
+    <tr>
+        <th>row_vec</th>
+        <td>A vector containing elements in the row of the matrix.</td>
+    </tr>
+</table>
+
+</DD>
+<DT>row_id</DT>
+<DD>TEXT. Column name containing the row IDs in the input source table. The column
+needs to be of type that can be cast to INT and should only contain values between 1 and
+<em>N</em>. For dense matrix format, it should contain all continguous integers from 1 to <em>N</em>.</DD>
+
+<DT>col_id</DT>
+<DD>TEXT.  Column name of containing the col IDS in sparse matrix representation
+(sparse matrices only). The column should be of type that can be cast to INT and
+contain values between 1 and <em>M</em>.</DD>
+
+<DT>val_id</DT>
+<DD>TEXT.  Name of 'val_id' column in sparse matrix representation (sparse matrices only). </DD>
+
+<DT>row_dim</DT>
+<DD>INTEGER.  The number of rows in the sparse matrix (sparse matrices only). </DD>
+
+<DT>col_dim</DT>
+<DD>INTEGER.  The number of columns in the sparse matrix (sparse matrices only). </DD>
+
+<DT>residual_table (optional)</DT>
+<DD>TEXT, default: NULL.  Name of the optional residual table.
+
+The <em>residual_table</em> encodes a dense residual matrix.  The table has the following columns:
+
+<table class="output">
+    <tr>
+        <th>row_id</th>
+        <td>Row id of the output matrix.</td>
+    </tr>
+    <tr>
+        <th>row_vec</th>
+        <td>A vector containing elements in the row of the residual matrix.</td>
+    </tr>
+</table>
+</DD>
+
+<DT>result_summary_table (optional)</DT>
+<DD>TEXT, default: NULL. Name of the optional summary table.
+
+The <em>result_summary_table</em> contains information about the performance time of the PCA projection. The table has the following columns:
+<table class="output">
+    <tr>
+        <th>exec_time</th>
+        <td>Wall clock time (ms) of the function.</td>
+    </tr>
+    <tr>
+        <th>residual_norm</th>
+        <td>Absolute error of the residuals.</td>
+    </tr>
+    <tr>
+        <th>relative_residual_norm</th>
+        <td>Relative error of the residuals.</td>
+    </tr>
+</table></DD>
+</DL>
+
+@anchor examples
+@examp
+-# View online help for the PCA projection function.
+<pre class="example">
+SELECT madlib.pca_project();
+</pre>
+
+-# Create the sample data.
+<pre class="example">
+DROP TABLE IF EXISTS mat;
+CREATE TABLE mat (
+    row_id integer,
+    row_vec double precision[]
+);
+INSERT INTO mat VALUES
+(1, ARRAY[4,7,5]),
+(2, ARRAY[1,2,5]),
+(3, ARRAY[7,4,4]),
+(4, ARRAY[9,2,4]),
+(5, ARRAY[8,5,7]),
+(6, ARRAY[0,5,5]);
+</pre>
+-# Run the PCA function and keep only the top two PCs:
+<pre class="example">
+DROP TABLE IF EXISTS result_table;
+SELECT pca_train ( 'mat',
+                   'result_table',
+                   'row_id',
+                   2
+                 );
+</pre>
+-# Project the original data into a low-dimensional representation.
+<pre class="example">
+DROP TABLE IF EXISTS residual_table, result_summary_table, out_table;
+SELECT pca_project( 'mat',
+                    'result_table',
+                    'out_table'
+                    'row_id',
+                    'residual_table',
+                    'result_summary_table'
+                  );
+</pre>
+-# Check the error in the projection.
+<pre class="example">
+SELECT * FROM result_summary_table;
+</pre>
+Result:
+<pre class="result">
+   exec_time   | residual_norm | relative_residual_norm
+---------------+---------------+------------------------
+ 5685.40501595 | 2.19726255664 |         0.099262204234
+</pre>
+
+@anchor notes
+@par Notes
+- This function is intended to operate on the principal component tables
+generated by <em> pca_train </em> or <em> pca_sparse_train</em>.  The MADlib PCA
+functions generate a table containing the column-means in addition to a table
+containing the principal components. If this table is not found by the MADlib
+projection function, it will trigger an error.  As long the principal component
+tables are created with MADlib functions, then the column-means table will be
+automatically found by the MADlib projection functions.
+- Because of the centering step in PCA projection
+(see "Technical Background"), sparse matrices almost always
+become dense during the projection
+process.  Thus, this implementation automatically densifies sparse matrix input,
+and there should be no expected performance improvement in using sparse matrix
+input over dense matrix input.
+- Table names can be optionally schema qualified (current_schemas() is
+searched if a schema name is not provided) and all table and column names
+should follow case-sensitivity and quoting rules per the database.
+(For instance, 'mytable' and 'MyTable' both resolve to the same entity, i.e. 'mytable'.
+If mixed-case or multi-byte characters are desired for entity names then the
+string should be double-quoted; in this case the input would be '"MyTable"').
+
+
+@anchor background
+@par Technical Background
+
+Given a table containing some principal components \f$ \boldsymbol P \f$ and
+some input data \f$  \boldsymbol X \f$, the low-dimensional representation \f$
+{\boldsymbol X}' \f$ is computed as  \f{align*}{ {\boldsymbol {\hat{X}}} & =
+{\boldsymbol X} - \vec{e} \hat{x}^T \\  {\boldsymbol X}' & =   {\boldsymbol
+{\hat {X}}} {\boldsymbol P}. \f} where \f$\hat{x}  \f$ is the column means of
+\f$  \boldsymbol X \f$ and  \f$ \vec{e} \f$ is the vector of all ones.  This
+step is equivalent to centering the data around the origin.
+
+The residual table \f$ \boldsymbol R \f$ is a measure of how well the
+low-dimensional representation approximates the true input data, and is computed
+as \f[ {\boldsymbol R} = {\boldsymbol {\hat{X}}}  - {\boldsymbol X}' {\boldsymbol
+P}^T. \f] A residual matrix with entries mostly close to zero indicates a good
+representation.
+
+The residual norm \f$ r \f$ is simply
+\f[
+r = \|{\boldsymbol R}\|_F
+\f]
+where  \f$ \|\cdot\|_F \f$ is the Frobenius norm.  The relative residual norm   \f$ r' \f$  is
+\f[
+r' = \frac{ \|{\boldsymbol R}\|_F }{\|{\boldsymbol X}\|_F }
+\f]
+
+
+@anchor related
+@par Related Topics
+File pca_project.sql_in documenting the SQL functions
+
+\ref grp_pca_train
+
+
+*/
+
+-- -----------------------------------------------------------------------
+--  PCA projection for Dense matrices
+-- -----------------------------------------------------------------------
+/*
+@brief Compute principal compoents for a dense matrix stored in a
+        database table
+*/
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.pca_project(
+    source_table            TEXT,    -- Source table name (dense matrix)
+    pc_table                TEXT,    -- Principal components table (output from pca module)
+    out_table               TEXT,    -- Output table name for the principal components
+    row_id                  TEXT,    -- Column name for the ID for each row
+    residual_table          TEXT,    -- Residual table (Default: NULL)
+    result_summary_table    TEXT     -- Table name to store summary of results (Default: NULL)
+)
+RETURNS VOID AS $$
+PythonFunction(pca, pca_project, pca_project)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+-- Overloaded functions for optional parameters
+-- -----------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.pca_project(
+    source_table            TEXT,    -- Source table name (dense matrix)
+    pc_table                TEXT,    -- Principal components table (output from pca module)
+    out_table               TEXT,    -- Output table name for the principal components
+    row_id                  TEXT     -- Column name for the ID for each row
+)
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.pca_project($1, $2, $3, $4, NULL, NULL)
+$$ LANGUAGE SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.pca_project(
+    source_table            TEXT,    -- Source table name (dense matrix)
+    pc_table                TEXT,    -- Principal components table (output from pca module)
+    out_table               TEXT,    -- Output table name for the principal components
+    row_id                  TEXT,    -- Column name for the ID for each row
+    residual_table          TEXT     -- Residual table (Default: NULL)
+)
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.pca_project($1, $2, $3, $4, $5, NULL)
+$$ LANGUAGE SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+
+-- Help and usage functions
+-----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.pca_project(
+    usage_string            TEXT     -- Usage string
+)
+RETURNS VARCHAR AS $$
+PythonFunction(pca, pca_project, pca_project_help)
+$$ LANGUAGE plpythonu IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.pca_project()
+RETURNS VARCHAR AS $$
+BEGIN
+    RETURN MADLIB_SCHEMA.pca_project('');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+
+
+-- -----------------------------------------------------------------------
+--  PCA sparse projection for dense matrices
+-- -----------------------------------------------------------------------
+/*
+@brief Compute principal compoents for a dense matrix stored in a
+        database table
+*/
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.pca_sparse_project(
+    source_table            TEXT,    -- Source table name (dense matrix)
+    pc_table                TEXT,    -- Principal components table (output from pca module)
+    out_table               TEXT,    -- Output table name for the principal components
+    row_id                  TEXT,    -- Column name for the row id
+    col_id                  TEXT,    -- Column name for the col id
+    val_id                  TEXT,    -- Column name for the value id
+    row_dim                 INT4,    -- Row dimension of the sparse matrix
+    col_dim                 INT4,    -- Column dimension of the sparse matrix
+    residual_table          TEXT,    -- Residual table (Default: NULL)
+    result_summary_table    TEXT     -- Table name to store summary of results (Default: NULL)
+)
+RETURNS VOID AS $$
+PythonFunction(pca, pca_project, pca_sparse_project)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+
+-- Overloaded functions for optional parameters
+-- -----------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.pca_sparse_project(
+    source_table            TEXT,    -- Source table name (dense matrix)
+    pc_table                TEXT,    -- Principal components table (output from pca module)
+    out_table               TEXT,    -- Output table name for the principal components
+    row_id                  TEXT,    -- Column name for the row id
+    col_id                  TEXT,    -- Column name for the col id
+    val_id                  TEXT,    -- Column name for the value id
+    row_dim                 INT4,    -- Row dimension of the sparse matrix
+    col_dim                 INT4     -- Column dimension of the sparse matrix
+)
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.pca_sparse_project($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL)
+$$ LANGUAGE SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.pca_sparse_project(
+    source_table            TEXT,    -- Source table name (dense matrix)
+    pc_table                TEXT,    -- Principal components table (output from pca module)
+    out_table               TEXT,    -- Output table name for the principal components
+    row_id                  TEXT,    -- Column name for the row id
+    col_id                  TEXT,    -- Column name for the col id
+    val_id                  TEXT,    -- Column name for the value id
+    row_dim                 INT4,    -- Row dimension of the sparse matrix
+    col_dim                 INT4,    -- Column dimension of the sparse matrix
+    residual_table          TEXT     -- Residual table (Default: NULL)
+)
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.pca_sparse_project($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL)
+$$ LANGUAGE SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+
+
+-- Help and usage functions
+-----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.pca_sparse_project(
+    usage_string            TEXT     -- Usage string
+)
+RETURNS VARCHAR AS $$
+PythonFunction(pca, pca_project, pca_sparse_project_help)
+$$ LANGUAGE plpythonu IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.pca_sparse_project()
+RETURNS VARCHAR AS $$
+BEGIN
+    RETURN MADLIB_SCHEMA.pca_sparse_project('');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+

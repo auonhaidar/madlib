@@ -1,0 +1,336 @@
+m4_include(`SQLCommon.m4')
+
+/* -----------------------------------------------------------------------------
+ * Test Logistic Regression.
+ * -------------------------------------------------------------------------- */
+
+DROP TABLE IF EXISTS patients;
+CREATE TABLE patients (
+    id INTEGER NOT NULL,
+    second_attack INTEGER,
+    treatment INTEGER,
+    trait_anxiety INTEGER
+    m4_ifdef(`__HAWQ__', `', `
+    , CONSTRAINT pk_patient PRIMARY key (id)
+    ')
+)m4_ifdef(`__POSTGRESQL__', `', `DISTRIBUTED BY (id)');
+INSERT INTO patients(ID, second_attack, treatment, trait_anxiety) VALUES
+( 1, 1, 1, 70),
+( 2, 1, 1, 80),
+( 3, 1, 1, 50),
+( 4, 1, 0, 60),
+( 5, 1, 0, 40),
+( 6, 1, 0, 65),
+( 7, 1, 0, 75),
+( 8, 1, 0, 80),
+( 9, 1, 0, 70),
+(10, 1, 0, 60),
+(11, 0, 1, 65),
+(12, 0, 1, 50),
+(13, 0, 1, 45),
+(14, 0, 1, 35),
+(15, 0, 1, 40),
+(16, 0, 1, 50),
+(17, 0, 0, 55),
+(18, 0, 0, 45),
+(19, 0, 0, 50),
+(20, 0, 0, 60);
+
+
+-- Note: This install check is meant to check that all the functions exposed to
+-- the user work.
+
+-- Checks for the function usage
+select margins_logregr('help');
+select margins_logregr('');
+select margins_logregr('random_test');
+select margins_logregr('usage');
+
+
+-- CHECK : Make sure cherry picking marginal values work
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_logregr(
+              'patients',
+              'result_table',
+              'second_attack',
+              'ARRAY[1, treatment, trait_anxiety]',
+              NULL,
+              ARRAY[1, 2, 3]
+             );
+
+-- CHECK : Make sure all possible default values work
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_logregr(
+              'patients',
+              'result_table',
+              'second_attack',
+              'ARRAY[1, treatment, trait_anxiety]',
+              NULL,
+              NULL,
+              20,
+              'irls',
+              1e-5
+              );
+
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_logregr(
+              'patients',
+              'result_table',
+              'second_attack',
+              'ARRAY[1, treatment, trait_anxiety]',
+              NULL,
+              NULL,
+              20,
+              'irls'
+              );
+
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_logregr(
+              'patients',
+              'result_table',
+              'second_attack',
+              'ARRAY[1, treatment, trait_anxiety]',
+              NULL,
+              NULL,
+              20
+              );
+
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_logregr(
+              'patients',
+              'result_table',
+              'second_attack',
+              'ARRAY[1, treatment, trait_anxiety]',
+              NULL,
+              NULL
+              );
+
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_logregr(
+              'patients',
+              'result_table',
+              'second_attack',
+              'ARRAY[1, treatment, trait_anxiety]',
+              NULL
+              );
+
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_logregr(
+              'patients',
+              'result_table',
+              'second_attack',
+              'ARRAY[1, treatment, trait_anxiety]'
+              );
+
+
+/* -----------------------------------------------------------------------------
+ * Test Multinomial Logistic Regression.
+ * -------------------------------------------------------------------------- */
+
+
+-- This is the same test case from the logistic regression example, just called with
+-- multinomial logistic regression.
+-- computed with the IRLS optimizer in MADlib
+--
+--
+-- Checks for the function usage
+select margins_mlogregr('help');
+select margins_mlogregr('');
+select margins_mlogregr('random_test');
+select margins_mlogregr('usage');
+
+
+-- CHECK : Make sure cherry picking marginal values work
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_mlogregr(
+              'patients',
+              'result_table',
+              'second_attack',
+              'ARRAY[1, treatment, trait_anxiety]',
+              0,
+              NULL,
+              ARRAY[1, 2, 3],
+              'max_iter=30, optimizer=newton, tolerance=0.01');
+
+-- CHECK : Make sure all possible default values work
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_mlogregr(
+              'patients',
+              'result_table',
+              'second_attack',
+              'ARRAY[1, treatment, trait_anxiety]',
+              0,
+              NULL,
+              NULL,
+             'max_iter=30, optimizer=newton, tolerance=1e-5');
+
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_mlogregr(
+              'patients',
+              'result_table',
+              'second_attack',
+              'ARRAY[1, treatment, trait_anxiety]',
+              0,
+              NULL,
+              NULL,
+             'max_iter=30, optimizer=newton');
+
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_mlogregr(
+              'patients',
+              'result_table',
+              'second_attack',
+              'ARRAY[1, treatment, trait_anxiety]',
+              0,
+              NULL,
+              NULL,
+             'max_iter=30');
+
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_mlogregr(
+              'patients',
+              'result_table',
+              'second_attack',
+              'ARRAY[1, treatment, trait_anxiety]',
+              0,
+              NULL,
+              NULL
+              );
+
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_mlogregr(
+              'patients',
+              'result_table',
+              'second_attack',
+              'ARRAY[1, treatment, trait_anxiety]',
+              0,
+              NULL);
+
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_mlogregr(
+              'patients',
+              'result_table',
+              'second_attack',
+              'ARRAY[1, treatment, trait_anxiety]',
+              0);
+
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_mlogregr(
+              'patients',
+              'result_table',
+              'second_attack',
+              'ARRAY[1, treatment, trait_anxiety]'
+              );
+
+-- NULL handling test
+DROP TABLE IF EXISTS patients_with_null;
+CREATE TABLE patients_with_null AS SELECT * FROM patients;
+INSERT INTO patients_with_null(ID, second_attack, treatment, trait_anxiety) VALUES
+(21, NULL, 0, 45),
+(22, 0, NULL, 50),
+(23, 0, 0, NULL);
+
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_logregr(
+    'patients_with_null',
+    'result_table',
+    'second_attack',
+    'ARRAY[1, treatment, trait_anxiety]');
+
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select margins_mlogregr(
+    'patients_with_null',
+    'result_table',
+    'second_attack',
+    'ARRAY[1, treatment, trait_anxiety]');
+
+-----------------------------------------------
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select logregr_train(
+        'patients',
+        'result_table',
+        'second_attack',
+        'ARRAY[1, treatment, trait_anxiety, treatment^2*trait_anxiety]',
+        NULL,
+        100,
+        'irls',
+        1e-05
+    );
+
+drop table if exists result_margin;
+select margins(
+    'result_table',
+    'result_margin',
+    NULL,
+    NULL,
+    NULL
+);
+
+drop table if exists result_margin;
+select margins(
+    'result_table',
+    'result_margin',
+    '1, 2, 3, 2*2*3',
+    'patients',
+    '3,    2'
+);
+-----------------------------------------------
+
+drop table if exists result_table;
+drop table if exists result_table_summary;
+select mlogregr_train(
+        'patients',
+        'result_table',
+        'second_attack',
+        'ARRAY[1, treatment, trait_anxiety]'
+    );
+
+drop table if exists result_margin;
+select margins(
+    'result_table',
+    'result_margin',
+    NULL,
+    NULL,
+    '2,3'
+);
+
+-- select * from result_margin;
+
+select assert(
+    relative_error(margins, ARRAY[-.1562142,.0181588]) < 1e-4,
+    'Marginal effects for multinomial logistic (patients): wrong margins'
+) from result_margin;
+
+select assert(
+    relative_error(std_err, ARRAY[.1672651,.0038713]) < 1e-4,
+    'Marginal effects for multinomial logistic (patients): wrong std_err'
+) from result_margin;
+
+select assert(
+    relative_error(z_stats, ARRAY[-.933932,4.690614]) < 1e-4,
+    'Marginal effects for multinomial logistic (patients): wrong z_stats'
+) from result_margin;
+
+select assert(
+    relative_error(p_values, ARRAY[.350339,2.72e-06]) < 1e-4,
+    'Marginal effects for multinomial logistic (patients): wrong p_values'
+) from result_margin;
+-----------------------------------------------

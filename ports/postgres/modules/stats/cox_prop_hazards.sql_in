@@ -1,0 +1,1529 @@
+/* ----------------------------------------------------------------------- *//**
+ *
+ * @file cox_prop_hazards.sql_in
+ *
+ * @brief SQL functions for cox proportional hazards
+ * @date July 2012
+ *
+ * @sa For a brief introduction to cox regression, see the
+ *     module description \ref grp_cox_prop_hazards
+ *
+ *//* ----------------------------------------------------------------------- */
+
+m4_include(`SQLCommon.m4')
+
+/**
+@addtogroup grp_cox_prop_hazards
+
+<div class="toc"><b>Contents</b>
+<ul>
+<li class="level1"><a href="#training">Training Function</a>
+<li class="level1"><a href="#cox_zph">PHA Test Function</a>
+<li class="level1"><a href="#predict">Prediction Function</a>
+<li class="level1"><a href="#examples">Examples</a></li>
+<li class="level1"><a href="#background">Technical Background</a></li>
+<li class="level1"><a href="#related">Related Topics</a></li>
+</ul>
+</div>
+
+@brief Models the relationship between one or more independent predictor
+variables and the amount of time before an event occurs.
+
+Proportional-Hazard models enable the comparison of various survival models.
+These survival models are functions describing the probability of a one-item
+event (prototypically, this event is death) with respect to time.
+The interval of time before the occurrence of death can be called the survival time.
+Let T be a random variable representing the survival time,
+with a cumulative probability function P(t). Informally, P(t) is
+the probability that death has happened before time t.
+
+@anchor training
+@par Training Function
+
+Following is the syntax for the coxph_train() training function:
+<pre class="syntax">
+coxph_train( source_table,
+             output_table,
+             dependent_variable,
+             independent_variable,
+             right_censoring_status,
+             strata,
+             optimizer_params
+           )
+</pre>
+\b Arguments
+<dl class="arglist">
+    <dt>source_table</dt>
+    <dd>TEXT. The name of the table containing input data.</dd>
+    <dt>output_table</dt>
+    <dd>TEXT. The name of the table where the output model is saved.
+        The output is saved in the table named by the <em>output_table</em> argument. It has the following columns:
+        <table class="output">
+            <tr>
+                <th>coef</th>
+                <td>FLOAT8[]. Vector of the coefficients.</td>
+            </tr>
+            <tr>
+                <th>loglikelihood</th>
+                <td>FLOAT8. Log-likelihood value of the MLE estimate.</td>
+            </tr>
+            <tr>
+                <th>std_err</th>
+                <td>FLOAT8[]. Vector of the standard error of the coefficients.</td>
+            </tr>
+            <tr>
+                <th>stats</th>
+                <td>FLOAT8[]. Vector of the statistics of the coefficients.</td>
+            </tr>
+            <tr>
+                <th>p_values</th>
+                <td>FLOAT8[]. Vector of the p-values of the coefficients.</td>
+            </tr>
+            <tr>
+                <th>hessian</th>
+                <td>FLOAT8[]. The Hessian matrix computed using the final solution.</td>
+            </tr>
+            <tr>
+                <th>num_iterations</th>
+                <td>INTEGER. The number of iterations performed by the optimizer.</td>
+            </tr>
+        </table>
+
+    Additionally, a summary output table is generated that contains
+    a summary of the parameters used for building the Cox model. It is stored
+    in a table named \<output_table\>_summary. It has the following columns:
+    <table class="output">
+        <tr>
+            <th>source_table</th>
+            <td>The source table name.</td>
+        </tr>
+        <tr>
+            <th>dependent_variable</th>
+            <td>The dependent variable name.</td>
+        </tr>
+        <tr>
+            <th>independent_variable</th>
+            <td>The independent variable name.</td>
+        </tr>
+        <tr>
+            <th>right_censoring_status</th>
+            <td>The right censoring status</td>
+        </tr>
+        <tr>
+            <th>strata</th>
+            <td>The stratification columns</td>
+        </tr>
+        <tr>
+            <th>num_processed</th>
+            <td>The number of rows that were actually used in the computation.</td>
+        </tr>
+        <tr>
+            <th>num_missing_rows_skipped</th>
+            <td>The number of rows that were skipped in the computation due to NULL values in them.</td>
+        </tr>
+    </table>
+    </dd>
+
+    <dt>dependent_variable</dt>
+    <dd>TEXT. A string containing the name of a column that contains
+        an array of numeric values, or a string expression in the format 'ARRAY[1, x1, x2, x3]',
+        where <em>x1</em>, <em>x2</em> and <em>x3</em> are column names. Dependent
+        variables refer to the time of death. There is no need to pre-sort the data.</dd>
+    <dt>independent_variable</dt>
+    <dd>TEXT. The name of the independent variable.</dd>
+    <dt>right_censoring_status (optional)</dt>
+    <dd>TEXT, default: TRUE for all observations. A string containing an expression that evaluates to the right-censoring status for the observation&mdash;TRUE if the observation is not
+        censored and FALSE if the observation is censored. The string could contain
+        the name of the column containing the right-censoring status, a fixed Boolean
+        expression (i.e., 'true', 'false', '0', '1') that applies to all observations,
+        or a Boolean expression such as 'column_name < 10' that can be evaluated for each
+        observation.</dd>
+    <dt>strata (optional)</dt>
+    <dd>VARCHAR, default: NULL, which does not do any stratifications. A string of comma-separated column names that are the strata ID variables used to do stratification.</dd>
+    <dt>optimizer_params (optional)</dt>
+    <dd>VARCHAR, default: NULL, which uses the default values of optimizer parameters: max_iter=100, optimizer=newton, tolerance=1e-8, array_agg_size=10000000, sample_size=1000000. It should be a string that contains 'key=value' pairs separated by commas. The meanings of these parameters are:
+
+    - max_iter &mdash; The maximum number of iterations. The computation stops if the number of iterations exceeds this, which usually means that there is no convergence.
+
+    - optimizer &mdash; The optimization method. Right now, "newton" is the only one supported.
+
+    - tolerance &mdash; The stopping criteria. When the difference between the log-likelihoods of two consecutive iterations is smaller than this number, the computation has already converged and stops.
+
+    - array_agg_size &mdash; To speed up the computation, the original data table is cut into multiple pieces, and each pieces of the data is aggregated into one big row. In the process of computation, the whole big row is loaded into memory and thus speed up the computation. This parameter controls approximately how many numbers we want to put into one big row. Larger value of array_agg_size may speed up more, but the size of the big row cannot exceed 1GB due to the restriction of PostgreSQL databases.
+
+    - sample_size &mdash; To cut the data into approximate equal pieces, we first sample the data, and then find out the break points using this sampled data. A larger sample_size produces more accurate break points.
+    </dd>
+</dl>
+
+@anchor cox_zph
+@par Proportional Hazards Assumption Test Function
+
+The cox_zph() function tests the proportional hazards assumption (PHA) of a Cox regression.
+
+Proportional-hazard models enable the comparison of various survival models.
+These PH models, however, assume that the hazard for a given individual is a
+fixed proportion of the hazard for any other individual, and the ratio of the
+hazards is constant across time. MADlib does not currently have support for
+performing any transformation of the time to compute the correlation.
+
+The cox_zph() function is used to test this assumption by computing the correlation
+of the residual of the coxph_train() model with time.
+
+Following is the syntax for the cox_zph() function:
+<pre class="syntax">
+cox_zph(cox_model_table, output_table)
+</pre>
+\b Arguments
+<dl class="arglist">
+    <dt>cox_model_table</dt>
+    <dd>TEXT. The name of the table containing the Cox Proportional-Hazards model.</dd>
+
+    <dt>output_table</dt>
+    <dd>TEXT. The name of the table where the test statistics are saved.
+        The output table is named by the <em>output_table</em> argument and has
+        the following columns:
+        <table class="output">
+            <tr>
+                <th>covariate</th>
+                <td>TEXT. The independent variables.</td>
+            </tr>
+            <tr>
+                <th>rho</th>
+                <td>FLOAT8[]. Vector of the correlation coefficients between
+                survival time and the scaled Schoenfeld residuals.</td>
+            </tr>
+            <tr>
+                <th>chi_square</th>
+                <td> FLOAT8[]. Chi-square test statistic for the correlation analysis.</td>
+            </tr>
+            <tr>
+                <th>p_value</th>
+                <td>FLOAT8[]. Two-side p-value for the chi-square statistic.</td>
+            </tr>
+        </table>
+    </dd>
+</dl>
+
+Additionally, the residual values are outputted to the table named <em>output_table</em>_residual.
+The table contains the following columns:
+        <table class="output">
+            <tr>
+                <th>\<dep_column_name\></th>
+                <td>FLOAT8. Time values (dependent variable) present in the original source table. </td>
+            </tr>
+            <tr>
+                <th>residual</th>
+                <td>FLOAT8[]. Difference between the original covariate values and the
+                expectation of the covariates obtained from the coxph_train model.</td>
+            </tr>
+            <tr>
+                <th>scaled_residual</th>
+                <td>Residual values scaled by the variance of the coefficients.</td>
+            </tr>
+        </table>
+
+@anchor notes
+@par Notes
+
+- Table names can be optionally schema qualified (current_schemas() is
+used if a schema name is not provided) and table and column names
+should follow case-sensitivity and quoting rules per the database.
+For instance, 'mytable' and 'MyTable' both resolve to the same entity&mdash;'mytable'.
+If mixed-case or multi-byte characters are desired for entity names then the
+string should be double-quoted; in this case the input would be '"MyTable"'.
+
+- The cox_prop_hazards_regr() and cox_prop_hazards() functions have been
+deprecated; coxph_train() should be used instead.
+
+@anchor predict
+@par Prediction Function
+The prediction function is provided to calculate the linear predictionors, risk or
+the linear terms for the given prediction data. It has the
+following syntax:
+<pre class="syntax">
+coxph_predict(model_table,
+              source_table,
+              id_col_name,
+              output_table,
+              pred_type,
+              reference)
+</pre>
+
+\b Arguments
+<DL class="arglist">
+  <DT>model_table</DT>
+  <DD>TEXT. Name of the table containing the cox model.</DD>
+
+  <DT>source_table</DT>
+  <DD>TEXT. Name of the table containing the prediction data.</DD>
+
+  <DT>id_col_name</DT>
+  <DD>TEXT. Name of the id column in the source table.</DD>
+
+  <DT>output_table</DT>
+  <DD>TEXT. Name of the table to store the prediction results in.</DD>
+        The output table is named by the <em>output_table</em> argument and has
+        the following columns:
+        <table class="output">
+            <tr>
+                <th>id</th>
+                <td>TEXT. The id column name from the source table.</td>
+            </tr>
+            <tr>
+                <th>predicted_result</th>
+                <td>DOUBLE PRECISION. Result of prediction based of the value of
+                the prediction type parameter.</td>
+            </tr>
+        </table>
+
+  <DT>pred_type</DT>
+  <DD>TEXT, OPTIONAL. Type of prediction. This can be one of 'linear_predictors',
+  'risk', or 'terms'. DEFAULT='linear_predictors'.
+    - 'linear_predictors' calculates the dot product of the independent variables
+        and the coefficients.
+    - 'risk' is the exponentiated value of the linear prediction.
+    - 'terms' correspond to the linear terms obtained by multiplying
+        the independent variables with their corresponding coefficients
+        values (without further calculating the sum of these terms)
+  </DD>
+
+  <DT>reference</DT>
+  <DD>TEXT, OPTIONAL. Reference level to use for centering predictions.
+  Can be one of 'strata', 'overall'. DEFAULT='strata'. Note that R uses
+  'sample' instead of 'overall' when referring to the overall mean value
+  of the covariates as being the reference level.</DD>
+</DL>
+
+@anchor examples
+@examp
+
+-# View online help for the proportional hazards training method.
+<pre class="example">
+SELECT madlib.coxph_train();
+</pre>
+
+-# Create an input data set.
+<pre class="example">
+DROP TABLE IF EXISTS sample_data;
+CREATE TABLE sample_data (
+    id INTEGER NOT NULL,
+    grp DOUBLE PRECISION,
+    wbc DOUBLE PRECISION,
+    timedeath INTEGER,
+    status BOOLEAN
+);
+COPY sample_data FROM STDIN WITH DELIMITER '|';
+  0 |   0 | 1.45 |        35 | t
+  1 |   0 | 1.47 |        34 | t
+  3 |   0 |  2.2 |        32 | t
+  4 |   0 | 1.78 |        25 | t
+  5 |   0 | 2.57 |        23 | t
+  6 |   0 | 2.32 |        22 | t
+  7 |   0 | 2.01 |        20 | t
+  8 |   0 | 2.05 |        19 | t
+  9 |   0 | 2.16 |        17 | t
+ 10 |   0 |  3.6 |        16 | t
+ 11 |   1 |  2.3 |        15 | t
+ 12 |   0 | 2.88 |        13 | t
+ 13 |   1 |  1.5 |        12 | t
+ 14 |   0 |  2.6 |        11 | t
+ 15 |   0 |  2.7 |        10 | t
+ 16 |   0 |  2.8 |         9 | t
+ 17 |   1 | 2.32 |         8 | t
+ 18 |   0 | 4.43 |         7 | t
+ 19 |   0 | 2.31 |         6 | t
+ 20 |   1 | 3.49 |         5 | t
+ 21 |   1 | 2.42 |         4 | t
+ 22 |   1 | 4.01 |         3 | t
+ 23 |   1 | 4.91 |         2 | t
+ 24 |   1 |    5 |         1 | t
+\\.
+</pre>
+-# Run the Cox regression function.
+<pre class="example">
+SELECT madlib.coxph_train( 'sample_data',
+                           'sample_cox',
+                           'timedeath',
+                           'ARRAY[grp,wbc]',
+                           'status'
+                         );
+</pre>
+-# View the results of the regression.
+<pre class="example">
+\\x on
+SELECT * FROM sample_cox;
+</pre>
+Results:
+<pre class="result">
+-[ RECORD 1 ]--+----------------------------------------------------------------------------
+coef           | {2.54407073265254,1.67172094779487}
+loglikelihood  | -37.8532498733
+std_err        | {0.677180599294897,0.387195514577534}
+z_stats        | {3.7568570855419,4.31751114064138}
+p_values       | {0.000172060691513886,1.5779844638453e-05}
+hessian        | {{2.78043065745617,-2.25848560642414},{-2.25848560642414,8.50472838284472}}
+num_iterations | 5
+</pre>
+
+-# Computing predictions using cox model.
+(This example uses the original data table to perform the prediction. Typically
+a different test dataset with the same features as the original training dataset
+would be used.)
+<pre class="example">
+\\x off
+-- Display the linear predictors for the original dataset
+SELECT madlib.coxph_predict('sample_cox',
+                            'sample_data',
+                            'id',
+                            'sample_pred');
+</pre>
+<pre class="result">
+SELECT * FROM sample_pred;
+ id |  predicted_value
+----+--------------------
+  0 |  -2.97110918125034
+  4 |  -2.41944126847803
+  6 |   -1.5167119566688
+  8 |  -1.96807661257341
+ 10 |  0.623090856508638
+ 12 |  -0.58054822590367
+ 14 |  -1.04863009128623
+ 16 | -0.714285901727259
+ 18 |   2.01061924317838
+ 20 |   2.98327228490375
+ 22 |   3.85256717775708
+ 24 |     5.507570916074
+  1 |  -2.93767476229444
+  3 |  -1.71731847040418
+  5 |  -1.09878171972008
+  7 |  -2.03494545048521
+  9 |  -1.78418730831598
+ 15 | -0.881457996506747
+ 19 |  -1.53342916614675
+ 11 |  0.993924357027849
+ 13 | -0.343452401208048
+ 17 |   1.02735877598375
+ 21 |   1.19453087076323
+ 23 |   5.35711603077246
+(24 rows)
+</pre>
+<pre class="example">
+-- Display the relative risk for the original dataset
+SELECT madlib.coxph_predict('sample_cox',
+                            'sample_data',
+                            'id',
+                            'sample_pred',
+                            'risk');
+</pre>
+<pre class="result">
+ id |  predicted_value
+ ----+--------------------
+  1 | 0.0529887971503509
+  3 |  0.179546963459175
+  5 |   0.33327686110022
+  7 |  0.130687611255372
+  9 |  0.167933483703554
+ 15 |  0.414178600294289
+ 19 |  0.215794402223054
+ 11 |   2.70181658768287
+ 13 |  0.709317242984782
+ 17 |   2.79367735395696
+ 21 |   3.30200833843654
+ 23 |   212.112338046551
+  0 | 0.0512464372091503
+  4 | 0.0889713146524469
+  6 |  0.219432204682557
+  8 |  0.139725343898993
+ 10 |   1.86468261037506
+ 12 |  0.559591499901241
+ 14 |  0.350417460388247
+ 16 |  0.489541567796517
+ 18 |   7.46794038691975
+ 20 |   19.7523463121038
+ 22 |   47.1138577624204
+ 24 |   246.551504798816
+(24 rows)
+</pre>
+
+-# Run the test for Proportional Hazards assumption to obtain correlation between
+residuals and time.
+<pre class="example">
+SELECT madlib.cox_zph( 'sample_cox',
+                       'sample_zph_output'
+                     );
+</pre>
+-# View results of the PHA test.
+<pre class="example">
+SELECT * FROM sample_zph_output;
+</pre>
+Results:
+<pre class="result">
+-[ RECORD 1 ]-----------------------------------------
+covariate  | ARRAY[grp,wbc]
+rho        | {0.00237308357328641,0.0375600568840431}
+chi_square | {0.000100675718191977,0.0232317400546175}
+p_value    | {0.991994376850758,0.878855984657948}
+</pre>
+
+@anchor background
+@par Technical Background
+
+Generally, proportional-hazard models start with a list of \f$ \boldsymbol n \f$ observations,
+each with \f$ \boldsymbol m \f$ covariates and a time of death. From this
+\f$ \boldsymbol n \times m \f$ matrix, we would like to derive the correlation
+between the covariates and the hazard function. This amounts to finding
+the parameters \f$ \boldsymbol \beta \f$ that best fit the model described below.
+
+Let us define:
+- \f$ \boldsymbol t \in  \mathbf R^{m} \f$ denote the vector of observed dependent
+  variables, with \f$ n \f$ rows.
+- \f$ X \in \mathbf R^{m} \f$ denote the design matrix with \f$ m \f$
+  columns and \f$ n \f$ rows, containing all observed vectors of independent
+  variables \f$ \boldsymbol x_i \f$ as rows.
+- \f$ R(t_i) \f$ denote the set of observations still alive at time \f$ t_i \f$
+
+Note that this model <b>does not</b> include a <b>constant term</b>, and the data
+cannot contain a column of 1s.
+
+By definition,
+\f[
+    P[T_k = t_i | \boldsymbol R(t_i)]
+    =    \frac{e^{\beta^T x_k} }{ \sum_{j \in R(t_i)} e^{\beta^T x_j}}.
+    \,.
+\f]
+
+The <b>partial likelihood </b>function can now be generated as the product of
+conditional probabilities:
+\f[
+\mathcal L = \prod_{i = 1}^n
+                \left(
+                \frac{e^{\beta^T x_i}}{ \sum_{j \in R(t_i)} e^{\beta^T x_j}}
+                \right).
+\f]
+
+The log-likelihood form of this equation is
+\f[
+L = \sum_{i = 1}^n
+                    \left[  \beta^T x_i
+                                    - \log\left(\sum_{j \in R(t_i)} e^{\beta^T x_j }\right)
+                    \right].
+\f]
+
+Using this score function and Hessian matrix, the partial likelihood can be
+maximized using the <b> Newton-Raphson algorithm</b>. <b>Breslow's method</b>
+is used to resolved tied times of deaths. The time of death for two records are
+considered "equal" if they differ by less than 1.0e-6
+
+The inverse of the Hessian matrix, evaluated at the estimate of
+\f$ \boldsymbol \beta \f$, can be used as an <b>approximate variance-covariance
+matrix </b> for the estimate, and used to produce approximate
+<b>standard errors</b> for the regression coefficients.
+
+\f[
+    \mathit{se}(c_i) = \left( (H)^{-1} \right)_{ii}
+    \,.
+\f]
+The Wald z-statistic is
+\f[
+    z_i = \frac{c_i}{\mathit{se}(c_i)}
+    \,.
+\f]
+
+The Wald \f$ p \f$-value for coefficient \f$ i \f$ gives the probability (under
+the assumptions inherent in the Wald test) of seeing a value at least as extreme
+as the one observed, provided that the null hypothesis (\f$ c_i = 0 \f$) is
+true. Letting \f$ F \f$ denote the cumulative density function of a standard
+normal distribution, the Wald \f$ p \f$-value for coefficient \f$ i \f$ is
+therefore
+\f[
+    p_i = \Pr(|Z| \geq |z_i|) = 2 \cdot (1 - F( |z_i| ))
+\f]
+where \f$ Z \f$ is a standard normally distributed random variable.
+
+
+The condition number is computed as \f$ \kappa(H) \f$ during the iteration
+immediately <em>preceding</em> convergence (i.e., \f$ A \f$ is computed using
+the coefficients of the previous iteration). A large condition number (say, more
+than 1000) indicates the presence of significant multicollinearity.
+
+@anchor Literature
+@literature
+
+A somewhat random selection of nice write-ups, with valuable pointers into
+further literature:
+
+[1] John Fox: Cox Proportional-Hazards Regression for Survival Data,
+        Appendix to An R and S-PLUS companion to Applied Regression Feb 2012,
+    http://cran.r-project.org/doc/contrib/Fox-Companion/appendix-cox-regression.pdf
+
+[2] Stephen J Walters: What is a Cox model?
+    http://www.medicine.ox.ac.uk/bandolier/painres/download/whatis/cox_model.pdf
+
+@anchor notes
+@par Notes
+
+If number of ties in the source table is very large, a memory allocation error
+may be raised. The limitation is about \f$(10^8 / m)\f$, where \f$m\f$ is
+number of featrues. For instance, if there are 100 featrues, the number of ties
+should be fewer than 1 million.
+
+@anchor related
+@par Related Topics
+
+File cox_prop_hazards.sql_in documenting the functions
+
+@internal
+@sa Namespace cox_prop_hazards
+    \ref madlib::modules::stats documenting the implementation in C++
+@endinternal
+
+*/
+
+------------------------------------------------------------
+
+-- column-Average each element of an array
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.array_avg_transition(
+    state           DOUBLE PRECISION[],
+    x               DOUBLE PRECISION[],
+    use_abs         BOOLEAN
+) RETURNS DOUBLE PRECISION[] AS
+    'MODULE_PATHNAME'
+LANGUAGE c IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.array_avg_merge(
+    left            DOUBLE PRECISION[],
+    right           DOUBLE PRECISION[]
+) RETURNS DOUBLE PRECISION[] AS
+    'MODULE_PATHNAME'
+LANGUAGE c IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.array_avg_final(
+    state           DOUBLE PRECISION[]
+) RETURNS DOUBLE PRECISION[] AS
+    'MODULE_PATHNAME'
+LANGUAGE c IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.array_avg(
+    DOUBLE PRECISION[], BOOLEAN);
+
+CREATE AGGREGATE MADLIB_SCHEMA.array_avg(
+    /* x */         DOUBLE PRECISION[],
+    /* use abs */   BOOLEAN
+) (
+    SType = DOUBLE PRECISION[],
+    SFunc = MADLIB_SCHEMA.array_avg_transition,
+    m4_ifdef(`__POSTGRESQL__', `', `PreFunc = MADLIB_SCHEMA.array_avg_merge,')
+    FinalFunc = MADLIB_SCHEMA.array_avg_final
+);
+
+------------------------------------------------------------
+
+/**
+ * @brief Compute cox-regression coefficients and diagnostic statistics
+ *
+ * To include an intercept in the model, set one coordinate in the
+ * <tt>independentVariables</tt> array to 1.
+ *
+ * @param source_table Name of the source relation containing the training data
+ * @param output_table Name of the output relation to contain the coxph_train model
+ * @param independent_varname Name of the independent column
+ * @param dependent_varname Name of the dependent column measuring time of death
+ * @param right_censoring_status Name of the column that determines right censoring support
+ * @param strata Comma-separated list of column names on which to stratify the data
+ * @param optimizer_params Comma-separated list of parameters for the optimizer function
+ *
+ * @return An output table with following columns:
+ *  - <tt>coef FLOAT8[]</tt> - Array of coefficients, \f$ \boldsymbol \beta \f$
+ *  - <tt>log_likelihood FLOAT8</tt> - Log-likelihood \f$l(\boldsymbol \beta)\f$
+ *  - <tt>std_err FLOAT8[]</tt> - Array of standard errors,
+ *    \f$ \mathit{se}(c_1), \dots, \mathit{se}(c_k) \f$
+ *  - <tt>z_stats FLOAT8[]</tt> - Array of Wald z-statistics, \f$ \boldsymbol z \f$
+ *  - <tt>p_values FLOAT8[]</tt> - Array of Wald p-values, \f$ \boldsymbol p \f$
+ *  - <tt>hessian FLOAT8[]</tt> - Hessian Matrix
+ *  - <tt>num_iterations INTEGER</tt> - The number of iterations before the
+ *                                  algorithm terminated
+ *
+ * - Get vector of coefficients \f$ \boldsymbol \beta \f$ and all diagnostic
+ *  statistics:\n
+ *  <pre>SELECT \ref coxph_train(
+ *    '<em>source_table</em>', '<em>output_table</em>',
+ *    '<em>dependent_varname</em>', '<em>independent_varname</em>'
+ *    '<em>right_censoring_status</em>', '<em>strata</em>'
+ * );</pre>
+ * - Get vector of coefficients \f$ \boldsymbol \beta \f$:\n
+ *  <pre>SELECT coef from <em>output_table</em></pre>
+ *
+ * See \ref grp_cox_prop_hazards for more details.
+ */
+-- for reinstall in HAWQ to work, drop the old versions
+DROP FUNCTION IF EXISTS MADLIB_SCHEMA.coxph_train(TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) CASCADE;
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.coxph_train(
+    source_table             VARCHAR,
+    output_table             VARCHAR,
+    dependent_varname        VARCHAR,
+    independent_varname      VARCHAR,
+    right_censoring_status   VARCHAR,
+    strata                   VARCHAR,
+    optimizer_params         VARCHAR
+)
+RETURNS VOID AS $$
+    PythonFunctionBodyOnly(`stats', `cox_prop_hazards')
+    cox_prop_hazards.coxph(
+        schema_madlib,
+        source_table,
+        output_table,
+        dependent_varname,
+        independent_varname,
+        right_censoring_status,
+        strata,
+        optimizer_params
+    )
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.coxph_train()
+RETURNS VARCHAR AS $$
+BEGIN
+    RETURN MADLIB_SCHEMA.coxph_train('');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+----------------------------------------------------------------------
+
+-- for reinstall in HAWQ to work, drop the old versions
+DROP FUNCTION IF EXISTS MADLIB_SCHEMA.coxph_train(TEXT) CASCADE;
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.coxph_train(
+     message VARCHAR    -- usage string
+)
+RETURNS VARCHAR AS $$
+PythonFunction(stats, cox_prop_hazards, coxph_help_message)
+$$ LANGUAGE plpythonu IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+----------------------------------------------------------------------
+
+/**
+  * @brief Cox regression training function
+  */
+-- for reinstall in HAWQ to work, drop the old versions
+DROP FUNCTION IF EXISTS MADLIB_SCHEMA.coxph_train(TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) CASCADE;
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.coxph_train(
+     source_table           VARCHAR  -- name of input  table
+   , output_table           VARCHAR  -- name of output table
+   , dependent_variable     VARCHAR  -- name of dependent variable
+   , independent_variable   VARCHAR  -- name of independent variable
+   , right_censoring_status VARCHAR  -- censored status
+   , strata                 VARCHAR  -- stratification column names
+  )
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.coxph_train($1, $2, $3, $4, $5, $6, NULL)
+$$ LANGUAGE sql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+----------------------------------------------------------------------
+
+/**
+  * @brief Cox regression training function
+  */
+-- for reinstall in HAWQ to work, drop the old versions
+DROP FUNCTION IF EXISTS MADLIB_SCHEMA.coxph_train(TEXT, TEXT, TEXT, TEXT, TEXT) CASCADE;
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.coxph_train(
+     source_table               VARCHAR     -- name of input  table
+   , output_table               VARCHAR     -- name of output table
+   , dependent_variable         VARCHAR     -- name of dependent variable
+   , independent_variable       VARCHAR     -- name of independent variable
+   , right_censoring_status     VARCHAR     -- censored status
+  )
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.coxph_train($1, $2, $3, $4, $5, NULL)
+$$ LANGUAGE sql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+----------------------------------------------------------------------
+
+/**
+  * @brief Cox regression training function
+  */
+-- for reinstall in HAWQ to work, drop the old versions
+DROP FUNCTION IF EXISTS MADLIB_SCHEMA.coxph_train(TEXT, TEXT, TEXT, TEXT) CASCADE;
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.coxph_train(
+     source_table               VARCHAR     -- name of input  table
+   , output_table               VARCHAR     -- name of output table
+   , dependent_variable         VARCHAR     -- name of dependent variable
+   , independent_variable       VARCHAR     -- name of independent variable
+  )
+RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.coxph_train($1, $2, $3, $4, 'TRUE')
+$$ LANGUAGE sql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+----------------------------------------------------------------------
+-- Cox regression: Prediction ----------------------------------------
+/**
+ * @brief Predict the linear Predictor or the risk for the given data.
+ *
+ * @param model_table Name of the table containing the cox model.
+ * @param source_table  Name of the table containing the prediction data.
+ * @param output_table Name of the table to store the prediction results into.
+ * @param pred_type Type of prediction. Can be one of 'linear_predictors', 'risk'
+ * or 'terms'.
+ * @param reference Reference level to use for centering predictions. Can
+ *                  be one of 'overall' or 'strata'.
+ *
+ */
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.coxph_predict(
+    model_table   TEXT,
+    source_table  TEXT,
+    id_col_name   TEXT,
+    output_table  TEXT,
+    pred_type   TEXT,
+    reference   TEXT
+) RETURNS VOID AS $$
+PythonFunction(stats, cox_prop_hazards, coxph_predict)
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `READS SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.coxph_predict(
+    model_table     TEXT,
+    source_table    TEXT,
+    id_col_name     TEXT,
+    output_table    TEXT,
+    pred_type       TEXT
+) RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.coxph_predict($1, $2, $3, $4, $5, NULL::TEXT);
+$$ LANGUAGE SQL VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `READS SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.coxph_predict(
+    model_table     TEXT,
+    source_table    TEXT,
+    id_col_name     TEXT,
+    output_table    TEXT
+) RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.coxph_predict($1, $2, $3, $4, NULL::TEXT, NULL::TEXT);
+$$ LANGUAGE SQL VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `READS SQL DATA', `');
+
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA._coxph_predict_resp(
+    coef                DOUBLE PRECISION[],
+    col_ind_var         DOUBLE PRECISION[],
+    mean_ind_var        DOUBLE PRECISION[],
+    pred_type           TEXT
+) RETURNS DOUBLE PRECISION
+AS 'MODULE_PATHNAME', 'coxph_predict_resp'
+LANGUAGE C STRICT IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA._coxph_predict_terms(
+    coef                DOUBLE PRECISION[],
+    col_ind_var         DOUBLE PRECISION[],
+    mean_ind_var        DOUBLE PRECISION[]
+) RETURNS DOUBLE PRECISION[]
+AS 'MODULE_PATHNAME', 'coxph_predict_terms'
+LANGUAGE C STRICT IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.coxph_predict(
+     message VARCHAR    -- usage string
+)
+RETURNS VARCHAR AS $$
+PythonFunction(stats, cox_prop_hazards, coxph_predict_help_message)
+$$ LANGUAGE plpythonu IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.coxph_predict()
+RETURNS VARCHAR AS $$
+BEGIN
+    RETURN MADLIB_SCHEMA.coxph_predict('');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+----------------------------------------------------------------------
+
+
+----------------------------------------------------------------------
+
+-- Utility function
+-- Move to utility folder later
+
+-- Quickly split the data evenly
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA._split_transition(
+    /* state */             DOUBLE PRECISION[],
+    /* value */             DOUBLE PRECISION,
+    /* sample_per_seg */    INTEGER,
+    /* num_splits */        INTEGER
+) RETURNS DOUBLE PRECISION[] AS
+    'MODULE_PATHNAME', 'split_transition'
+LANGUAGE c IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+-------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA._split_merge(
+    /* left state */    DOUBLE PRECISION[],
+    /* right state */   DOUBLE PRECISION[]
+) RETURNS DOUBLE PRECISION[] AS
+    'MODULE_PATHNAME', 'split_merge'
+LANGUAGE c IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+--------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA._split_final(
+    /* final state */   DOUBLE PRECISION[]
+) RETURNS DOUBLE PRECISION[] AS
+    'MODULE_PATHNAME', 'split_final'
+LANGUAGE c IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+--------------
+
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA._compute_splits(
+    DOUBLE PRECISION,
+    INTEGER,
+    INTEGER);
+
+--------
+
+CREATE AGGREGATE MADLIB_SCHEMA._compute_splits(
+    /* value */             DOUBLE PRECISION,
+    /* sample_per_seg */    INTEGER,
+    /* num_splits */        INTEGER
+) (
+    SType = DOUBLE PRECISION[],
+    SFunc = MADLIB_SCHEMA._split_transition,
+    m4_ifdef(`__POSTGRESQL__', `', `PreFunc = MADLIB_SCHEMA._split_merge,')
+    FinalFunc = MADLIB_SCHEMA._split_final
+);
+
+------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA._compute_grpid(
+    splits      DOUBLE PRECISION[],
+    split_col   DOUBLE PRECISION,
+    reverse     BOOLEAN
+) RETURNS INTEGER AS
+    'MODULE_PATHNAME', 'compute_grpid'
+LANGUAGE c IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+--------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA._compute_grpid(
+    splits      DOUBLE PRECISION[],
+    split_col   DOUBLE PRECISION
+) RETURNS INTEGER AS $$
+    SELECT MADLIB_SCHEMA._compute_grpid($1, $2, False);
+$$
+LANGUAGE sql IMMUTABLE
+-- FIXME What's the proper function property here?
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+------------------------------------------------------------
+
+DROP TYPE IF EXISTS MADLIB_SCHEMA.coxph_result CASCADE;
+CREATE TYPE MADLIB_SCHEMA.coxph_result AS (
+    coef DOUBLE PRECISION[],
+    logLikelihood DOUBLE PRECISION,
+    std_err DOUBLE PRECISION[],
+    z_stats DOUBLE PRECISION[],
+    p_values DOUBLE PRECISION[],
+    hessian DOUBLE PRECISION[],
+    num_iterations INTEGER
+);
+
+DROP FUNCTION IF EXISTS MADLIB_SCHEMA.compute_coxph_result(
+  DOUBLE PRECISION[], DOUBLE PRECISION,
+  DOUBLE PRECISION[], INTEGER, DOUBLE PRECISION[]
+  ) CASCADE;
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.compute_coxph_result(
+    coef    DOUBLE PRECISION[],
+    L       DOUBLE PRECISION,
+    d2L     DOUBLE PRECISION[],
+    nIter   INTEGER,
+    stds    DOUBLE PRECISION[]
+) RETURNS MADLIB_SCHEMA.coxph_result AS
+    'MODULE_PATHNAME', 'compute_coxph_result'
+LANGUAGE c IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+------------------------------------------------------------
+
+DROP TYPE IF EXISTS MADLIB_SCHEMA.coxph_step_result CASCADE;
+CREATE TYPE MADLIB_SCHEMA.coxph_step_result AS (
+    coef        DOUBLE PRECISION[],
+    L           DOUBLE PRECISION,
+    d2L         DOUBLE PRECISION[],
+    max_coef    DOUBLE PRECISION[]
+);
+
+------------------------
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.coxph_improved_step_final(
+    state DOUBLE PRECISION[])
+RETURNS MADLIB_SCHEMA.coxph_step_result AS
+    'MODULE_PATHNAME', 'coxph_improved_step_final'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+------------------------
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.coxph_improved_step_transition(
+    /*+  state */   DOUBLE PRECISION[],
+    /*+  x */       DOUBLE PRECISION[],
+    /*+  y */       DOUBLE PRECISION[],
+    /*+  status */  INTEGER[],
+    /*+  coef */    DOUBLE PRECISION[],
+    /*+ max_coef */ DOUBLE PRECISION[]
+)
+RETURNS DOUBLE PRECISION[] AS
+    'MODULE_PATHNAME', 'coxph_improved_step_transition'
+LANGUAGE C IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+------------------------
+
+/**
+ * @internal
+ * @brief Perform one iteration the Newton-Rhapson method.
+ */
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.coxph_improved_step(
+    /*+  x */       DOUBLE PRECISION[],
+    /*+  y */       DOUBLE PRECISION[],
+    /*+  status */  INTEGER[],
+    /*+  coef */    DOUBLE PRECISION[],
+    /*+ max_coef */ DOUBLE PRECISION[]
+);
+
+------------------------
+
+CREATE
+m4_ifdef(`__POSTGRESQL__', `',
+        m4_ifdef(`__HAS_ORDERED_AGGREGATES__',`ORDERED'))
+AGGREGATE MADLIB_SCHEMA.coxph_improved_step(
+    /*+  x */       DOUBLE PRECISION[],
+    /*+  y */       DOUBLE PRECISION[],
+    /*+  status */  INTEGER[],
+    /*+  coef */    DOUBLE PRECISION[],
+    /*+ max_coef */ DOUBLE PRECISION[]
+)
+(
+    STYPE     = DOUBLE PRECISION[],
+    SFUNC     = MADLIB_SCHEMA.coxph_improved_step_transition,
+    FINALFUNC = MADLIB_SCHEMA.coxph_improved_step_final,
+    INITCOND  = '{0,0,0,0,0,0,0}'
+);
+
+------------------------------------------------------------
+
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.coxph_improved_strata_step_inner(
+    /*+  x */       DOUBLE PRECISION[],
+    /*+  y */       DOUBLE PRECISION[],
+    /*+  status */  INTEGER[],
+    /*+  coef */    DOUBLE PRECISION[],
+    /*+ max_coef */ DOUBLE PRECISION[]
+);
+
+---------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.coxph_step_inner_final(
+    state DOUBLE PRECISION[])
+RETURNS DOUBLE PRECISION[] AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+----------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.coxph_step_outer_transition(
+    /*+ state1 */ DOUBLE PRECISION[],
+    /*+ state2 */ DOUBLE PRECISION[])
+RETURNS DOUBLE PRECISION[] AS 'MODULE_PATHNAME'
+LANGUAGE c IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+------------------------------------------------------------
+
+CREATE
+m4_ifdef(`__POSTGRESQL__', `', m4_ifdef(`__HAS_ORDERED_AGGREGATES__',`ORDERED'))
+AGGREGATE MADLIB_SCHEMA.coxph_improved_strata_step_inner(
+    /*+  x */       DOUBLE PRECISION[],
+    /*+  y */       DOUBLE PRECISION[],
+    /*+  status */  INTEGER[],
+    /*+  coef */    DOUBLE PRECISION[],
+    /*+ max_coef */ DOUBLE PRECISION[]
+)
+(
+    STYPE=DOUBLE PRECISION[],
+    SFUNC=MADLIB_SCHEMA.coxph_improved_step_transition,
+    FinalFunc = MADLIB_SCHEMA.coxph_step_inner_final,
+    INITCOND='{0,0,0,0,0,0,0}'
+);
+
+----------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.coxph_improved_strata_step_final(
+    state DOUBLE PRECISION[])
+RETURNS MADLIB_SCHEMA.coxph_step_result AS
+    'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+------------------------------------
+
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.coxph_improved_strata_step_outer(
+    /*+  state */ DOUBLE PRECISION[]
+);
+
+------------------------------------
+
+CREATE AGGREGATE MADLIB_SCHEMA.coxph_improved_strata_step_outer(
+    /*+  state */ DOUBLE PRECISION[]
+)
+(
+    STYPE=DOUBLE PRECISION[],
+    SFUNC=MADLIB_SCHEMA.coxph_step_outer_transition,
+    FINALFUNC=MADLIB_SCHEMA.coxph_improved_strata_step_final
+    m4_ifdef(`__POSTGRESQL__', `', `,prefunc=MADLIB_SCHEMA.coxph_step_outer_transition')
+);
+
+-----------------------------------------------------------------------
+
+/**
+* @brief Test the proportional hazards assumption for a Cox regression model fit (coxph_train)
+
+@param coxph_model_table Name of the table that contains the Cox Proportional Hazards model
+@param output_table Name of the output table to contain the statistics to test the proportional hazards assumption
+
+@return An output table with following columns:
+Columns of the matrix contain the correlation coefficient between transformed , a chi-square, and the two-sided p-value.
+    - <tt>rho FLOAT8[]</tt> - Array of correlation coefficient between survival time and the scaled Schoenfeld residuals
+    - <tt>chi_square FLOAT8[]</tt> - Chi-square test statistic for the
+    - <tt>p_value FLOAT8[]</tt> - Two-side p-value for the chi-square test
+*/
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.cox_zph
+(
+    coxph_model_table  VARCHAR,
+    output_table       VARCHAR
+)
+RETURNS VOID AS $$
+PythonFunctionBodyOnly(`stats', `cox_prop_hazards')
+    cox_prop_hazards.zph(schema_madlib, coxph_model_table, output_table)
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+-------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.cox_zph()
+RETURNS VARCHAR AS $$
+BEGIN
+    RETURN MADLIB_SCHEMA.cox_zph('');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+----------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.cox_zph(
+     message VARCHAR     -- usage string
+)
+RETURNS VARCHAR AS $$
+PythonFunction(stats, cox_prop_hazards, zph_help_message)
+$$ LANGUAGE plpythonu IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+----------------------------------------------------------------------
+
+-- Schoenfeld residuals --------------------------------------------------------
+-- Transition function to be called for the Schoenfeld residuals
+--   as part of an aggregate-defined window function
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__zph_transition(
+    /*+  state */  DOUBLE PRECISION[],
+    /*+  x */      DOUBLE PRECISION[],
+    /*+  coef */   DOUBLE PRECISION[])
+RETURNS DOUBLE PRECISION[] AS
+'MODULE_PATHNAME', 'zph_transition'
+LANGUAGE c IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__zph_merge(
+    /*+  left_state */  DOUBLE PRECISION[],
+    /*+  right_state */  DOUBLE PRECISION[])
+RETURNS DOUBLE PRECISION[] AS
+'MODULE_PATHNAME', 'zph_merge'
+LANGUAGE c IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__zph_final(
+    /*+  left_state */  DOUBLE PRECISION[])
+RETURNS DOUBLE PRECISION[] AS
+'MODULE_PATHNAME', 'zph_final'
+LANGUAGE c IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+/**
+ * @internal
+ * @brief Aggregate for the Schoenfeld residuals
+ *        (should be used as part of an aggregate-defined window function)
+ */
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.zph_agg(
+    /*+  x */ DOUBLE PRECISION[],
+    /*+  coef */   DOUBLE PRECISION[]
+);
+CREATE AGGREGATE MADLIB_SCHEMA.zph_agg(
+    /*+  x */ DOUBLE PRECISION[],
+    /*+  coef */   DOUBLE PRECISION[]
+)
+(
+    STYPE=DOUBLE PRECISION[],
+    SFUNC=MADLIB_SCHEMA.__zph_transition,
+    FINALFUNC=MADLIB_SCHEMA.__zph_final
+    m4_ifdef(`__POSTGRESQL__', `', `, PREFUNC = MADLIB_SCHEMA.__zph_merge')
+);
+
+-------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__coxph_scale_resid(
+    m       INTEGER,
+    hessian DOUBLE PRECISION[],
+    resid   DOUBLE PRECISION[])
+RETURNS DOUBLE PRECISION[]
+AS 'MODULE_PATHNAME', 'coxph_scale_resid'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+-------------------------------------------------------------------------
+
+-- TODO: Move these out of cox prop hazards module
+-- Aggregates for array correlation---------------------------------------------
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__array_elem_corr_transition(
+    /*+  state */  DOUBLE PRECISION[],
+    /*+  x */      DOUBLE PRECISION[],
+    /*+  y */      DOUBLE PRECISION)
+RETURNS DOUBLE PRECISION[] AS
+'MODULE_PATHNAME', 'array_elem_corr_transition'
+LANGUAGE c IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__array_elem_corr_merge(
+    /*+  left_state */  DOUBLE PRECISION[],
+    /*+  right_state */  DOUBLE PRECISION[])
+RETURNS DOUBLE PRECISION[] AS
+'MODULE_PATHNAME', 'array_elem_corr_merge'
+LANGUAGE c IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__array_elem_corr_final(
+    /*+  state */  DOUBLE PRECISION[])
+RETURNS DOUBLE PRECISION[] AS
+'MODULE_PATHNAME', 'array_elem_corr_final'
+LANGUAGE c IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+/**
+ * @internal
+ * @brief Correlation function to compute element-wise correlation between an
+ *        array of variables with another scalar variable.
+ */
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.array_elem_corr_agg(
+    /*+  array_input */   DOUBLE PRECISION[],
+    /*+  common_elem */   DOUBLE PRECISION
+);
+CREATE AGGREGATE MADLIB_SCHEMA.array_elem_corr_agg(
+    /*+  array_input */   DOUBLE PRECISION[],
+    /*+  common_elem */   DOUBLE PRECISION)
+(
+    STYPE=DOUBLE PRECISION[],
+    SFUNC=MADLIB_SCHEMA.__array_elem_corr_transition,
+    FINALFUNC=MADLIB_SCHEMA.__array_elem_corr_final,
+    INITCOND='{0,0,0,0,0,0,0}'
+    m4_ifdef(`__POSTGRESQL__', `', `,PREFUNC = MADLIB_SCHEMA.__array_elem_corr_merge')
+);
+
+--------------------------------------------------------------------------------
+-- Aggregates for computing various statistics for coxph -----------------------
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__coxph_resid_stat_transition(
+    /*+ state    */ DOUBLE PRECISION[],
+    /*+ w        */ DOUBLE PRECISION,
+    /*+ residual */ DOUBLE PRECISION[],
+    /*+ hessian  */ DOUBLE PRECISION[],
+    /*+ m        */ INTEGER)
+RETURNS DOUBLE PRECISION[]
+AS 'MODULE_PATHNAME', 'coxph_resid_stat_transition'
+LANGUAGE c IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+------------------------------------
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__coxph_resid_stat_merge(
+    /*+ state1   */ DOUBLE PRECISION[],
+    /*+ state2   */ DOUBLE PRECISION[])
+RETURNS DOUBLE PRECISION[]
+AS 'MODULE_PATHNAME', 'coxph_resid_stat_merge'
+LANGUAGE c IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+------------------------------------
+DROP TYPE IF EXISTS MADLIB_SCHEMA.__cox_resid_stat_result CASCADE;
+CREATE TYPE MADLIB_SCHEMA.__cox_resid_stat_result AS
+(
+    chi_square_stat DOUBLE PRECISION[],
+    p_value         DOUBLE PRECISION[]
+);
+------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__coxph_resid_stat_final(
+    state DOUBLE PRECISION[])
+RETURNS MADLIB_SCHEMA.__cox_resid_stat_result
+AS 'MODULE_PATHNAME', 'coxph_resid_stat_final'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+------------------------------------
+
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.__coxph_resid_stat_agg(
+    /*+ w        */ DOUBLE PRECISION,
+    /*+ residual */ DOUBLE PRECISION[],
+    /*+ hessian  */ DOUBLE PRECISION[],
+    /*+ m        */ INTEGER
+);
+CREATE AGGREGATE MADLIB_SCHEMA.__coxph_resid_stat_agg(
+    /*+ w        */ DOUBLE PRECISION,
+    /*+ residual */ DOUBLE PRECISION[],
+    /*+ hessian  */ DOUBLE PRECISION[],
+    /*+ m        */ INTEGER
+)
+(
+    STYPE=DOUBLE PRECISION[],
+    SFUNC=MADLIB_SCHEMA.__coxph_resid_stat_transition,
+    FINALFUNC=MADLIB_SCHEMA.__coxph_resid_stat_final
+    m4_ifdef(`__POSTGRESQL__', `', `,prefunc=MADLIB_SCHEMA.__coxph_resid_stat_merge')
+);
+
+----------------------------------------------------------------------
+-- Deprecated functions -----------------------------------------------------------
+
+/**
+  * @brief Cox regression training function
+  */
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.cox_prop_hazards(
+     source_table               VARCHAR       -- name of input table
+   , out_table                  VARCHAR       -- name of output table
+   , dependent_varname          VARCHAR       -- name of dependent variable
+   , independent_varname        VARCHAR       -- name of independent variable
+   , status                     VARCHAR       -- censoring status
+  )
+RETURNS VOID AS $$
+DECLARE
+    temp_string     VARCHAR;
+BEGIN
+    RAISE WARNING $sql$This function has been deprecated. Please use 'coxph_train' instead.$sql$;
+    SELECT 'pg_temp.' || MADLIB_SCHEMA.__unique_string() into temp_string;
+    PERFORM MADLIB_SCHEMA.coxph_train($1, temp_string, $3, $4, $5);
+    EXECUTE '
+          CREATE TABLE ' || out_table ||
+            ' AS SELECT coef, std_err, z_stats, p_values FROM ' ||
+            temp_string;
+    EXECUTE 'DROP TABLE ' || temp_string;
+    EXECUTE 'DROP TABLE ' || temp_string || '_summary';
+
+END
+$$ LANGUAGE plpgsql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+/**
+  * @brief Cox regression training function
+  */
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.cox_prop_hazards(
+     source_table               VARCHAR       -- name of input  table
+   , out_table                  VARCHAR       -- name of output table
+   , dependent_variable          VARCHAR       -- name of dependent variable
+   , independent_variable        VARCHAR       -- name of independent variable
+  )
+RETURNS VOID AS $$
+BEGIN
+  EXECUTE 'SELECT MADLIB_SCHEMA.cox_prop_hazards(' ||
+          ' ''' || source_table || ''' ' ||
+          ' ,''' || out_table || ''' ' ||
+          ' ,''' || dependent_variable || ''' ' ||
+          ' ,''' || independent_variable || ''' ' ||
+          ' , ''TRUE'')';
+END;
+$$ LANGUAGE plpgsql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.cox_prop_hazards(
+     usage_string VARCHAR                               -- usage string
+)
+RETURNS VARCHAR AS $$
+PythonFunction(stats, cox_prop_hazards, cox_prop_hazards)
+$$ LANGUAGE plpythonu IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.cox_prop_hazards()
+RETURNS VARCHAR AS $$
+BEGIN
+  RETURN MADLIB_SCHEMA.cox_prop_hazards('');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+-------------------------------------------------------------------------
+
+DROP TYPE IF EXISTS MADLIB_SCHEMA.cox_prop_hazards_result CASCADE;
+CREATE TYPE MADLIB_SCHEMA.cox_prop_hazards_result AS (
+    coef DOUBLE PRECISION[],
+    logLikelihood DOUBLE PRECISION,
+    std_err DOUBLE PRECISION[],
+    z_stats DOUBLE PRECISION[],
+    p_values DOUBLE PRECISION[],
+    num_iterations INTEGER
+);
+
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.cox_prop_hazards_regr(
+    "source" VARCHAR,
+    "indepColumn" VARCHAR,
+    "depColumn" VARCHAR,
+    "status" VARCHAR,
+    "maxNumIterations" INTEGER /*+ DEFAULT 20 */,
+    "optimizer" VARCHAR /*+ DEFAULT 'newton' */,
+    "precision" DOUBLE PRECISION /*+ DEFAULT 0.0001 */)
+RETURNS MADLIB_SCHEMA.cox_prop_hazards_result AS $$
+PythonFunctionBodyOnly(`stats', `cox_prop_hazards')
+    plpy.warning("This function has been deprecated. Please use 'coxph_train' instead.")
+    optimizer_params = "max_iter=" + str(maxNumIterations) + \
+                       ", optimizer=" + str(optimizer) + \
+                       ", tolerance=" + str(precision)
+    temp_string = plpy.execute("SELECT 'pg_temp.' || {schema_madlib}.__unique_string() AS t".
+                               format(schema_madlib=schema_madlib))[0]["t"]
+
+    plpy.execute("""
+                 SELECT {schema_madlib}.coxph_train(
+                 '{source}','{temp}', '{dep}', '{indep}',
+                 '{status}', NULL, '{optimizer}')
+                 """.format(schema_madlib=schema_madlib,
+                            source=source,
+                            temp=temp_string,
+                            dep=depColumn,
+                            indep=indepColumn,
+                            status=status,
+                            optimizer=optimizer_params))
+    return plpy.execute("SELECT coef, loglikelihood, std_err, z_stats,"
+                        "p_values, num_iterations FROM {temp}".
+                        format(temp=temp_string))[0]
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+
+-- Note: The function cox_prop_hazards_regr has been deprecated but maintained
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.cox_prop_hazards_regr(
+    "source" VARCHAR,
+    "indepColumn" VARCHAR,
+    "depColumn" VARCHAR,
+    "status" VARCHAR)
+RETURNS MADLIB_SCHEMA.cox_prop_hazards_result AS
+$$SELECT MADLIB_SCHEMA.cox_prop_hazards_regr($1, $2, $3, $4, 20, 'newton', 0.0001);$$
+LANGUAGE sql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+-- Note: The function cox_prop_hazards_regr has been deprecated but maintained
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.cox_prop_hazards_regr(
+    "source" VARCHAR,
+    "indepColumn" VARCHAR,
+    "depColumn" VARCHAR,
+    "status" VARCHAR,
+    "maxNumIterations" INTEGER)
+RETURNS MADLIB_SCHEMA.cox_prop_hazards_result AS
+$$SELECT MADLIB_SCHEMA.cox_prop_hazards_regr($1, $2, $3, $4, $5, 'newton', 0.0001);$$
+LANGUAGE sql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+-- Note: The function cox_prop_hazards_regr has been deprecated but maintained
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.cox_prop_hazards_regr(
+    "source" VARCHAR,
+    "indepColumn" VARCHAR,
+    "depColumn" VARCHAR,
+    "status" VARCHAR,
+    "maxNumIterations" INTEGER,
+    "optimizer" VARCHAR)
+RETURNS MADLIB_SCHEMA.cox_prop_hazards_result AS
+$$SELECT MADLIB_SCHEMA.cox_prop_hazards_regr($1, $2, $3, $4, $5, $6, 0.0001);$$
+LANGUAGE sql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+-----------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__array_element_min(
+    DOUBLE PRECISION[],
+    DOUBLE PRECISION[]
+)
+RETURNS DOUBLE PRECISION[]
+AS 'MODULE_PATHNAME', 'array_element_min'
+LANGUAGE C IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.array_element_min(
+    DOUBLE PRECISION[]
+);
+CREATE AGGREGATE MADLIB_SCHEMA.array_element_min(
+    DOUBLE PRECISION[]
+)
+(
+    STYPE=DOUBLE PRECISION[],
+    SFUNC=MADLIB_SCHEMA.__array_element_min
+    m4_ifdef(`__POSTGRESQL__', `', `,prefunc=MADLIB_SCHEMA.__array_element_min')
+);
+
+-----------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.__array_element_max(
+    DOUBLE PRECISION[],
+    DOUBLE PRECISION[]
+)
+RETURNS DOUBLE PRECISION[]
+AS 'MODULE_PATHNAME', 'array_element_max'
+LANGUAGE C IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.array_element_max(
+    DOUBLE PRECISION[]
+);
+CREATE AGGREGATE MADLIB_SCHEMA.array_element_max(
+    DOUBLE PRECISION[]
+)
+(
+    STYPE=DOUBLE PRECISION[],
+    SFUNC=MADLIB_SCHEMA.__array_element_max
+    m4_ifdef(`__POSTGRESQL__', `', `,prefunc=MADLIB_SCHEMA.__array_element_max')
+);
+
+----------------------------------------------------------------------

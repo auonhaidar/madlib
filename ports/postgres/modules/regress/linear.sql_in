@@ -1,0 +1,727 @@
+/* ----------------------------------------------------------------------- *//**
+ *
+ * @file linear.sql_in
+ *
+ * @brief SQL functions for linear regression
+ * @date January 2011
+ *
+ * @sa For a brief introduction to linear regression, see the module
+ *     description \ref grp_linreg.
+ *
+ *//* ----------------------------------------------------------------------- */
+
+m4_include(`SQLCommon.m4')
+
+/**
+@addtogroup grp_linreg
+
+
+<div class="toc"><b>Contents</b>
+<ul>
+<li class="level1"><a href="#train">Training Function</a></li>
+<li class="level1"><a href="#predict">Prediction Function</a></li>
+<li class="level1"><a href="#examples">Examples</a></li>
+<li class="level1"><a href="#background">Technical Background</a></li>
+<li class="level1"><a href="#literature">Literature</a></li>
+<li class="level1"><a href="#related">Related Topics</a></li>
+</ul></div>
+
+@brief Also called Ordinary Least Squares Regression, models linear relationship between a dependent variable and one or more independent variables.
+
+Linear regression models a linear relationship of a scalar dependent variable
+\f$ y \f$ to one or more explanatory independent variables \f$ x \f$ to build
+a model of coefficients.
+
+@anchor train
+@par Training Function
+
+The linear regression training function has the following syntax.
+<pre class="syntax">
+linregr_train( source_table,
+               out_table,
+               dependent_varname,
+               independent_varname,
+               grouping_cols,
+               heteroskedasticity_option
+             )
+</pre>
+
+\b Arguments
+<DL class="arglist">
+<DT>source_table</DT>
+<DD>TEXT. The name of the table containing the training data.</DD>
+
+<DT>out_table</DT>
+<DD>TEXT. Name of the generated table containing the output model.
+
+  The output table contains the following columns.
+  <table class="output">
+  <tr>
+  <th>\<...></th>
+  <td>Any grouping columns provided during training.
+  Present only if the grouping option is used.</td>
+  </tr>
+  <tr>
+  <th>coef</th>
+  <td>FLOAT8[]. Vector of the coefficients of the regression.</td>
+  </tr>
+  <tr>
+  <th>r2</th>
+  <td>FLOAT8. R-squared coefficient of determination of the model.</td>
+  </tr>
+  <tr>
+  <th>std_err</th>
+  <td>FLOAT8[]. Vector of the standard error of the coefficients.</td>
+  </tr>
+  <tr>
+  <th>t_stats</th>
+  <td>FLOAT8[]. Vector of the t-statistics of the coefficients.</td>
+  </tr>
+  <tr>
+  <th>p_values</th>
+  <td>FLOAT8[]. Vector of the p-values of the coefficients.</td>
+  </tr>
+  <tr>
+  <th>condition_no</th>
+  <td>FLOAT8 array. The condition number of the \f$X^{*}X\f$
+  matrix. A high condition number is usually an indication that there may be
+  some numeric instability in the result yielding a less reliable model. A high
+  condition number often results when there is a significant amount of
+  colinearity in the underlying design matrix, in which case other regression
+  techniques, such as elastic net regression, may be more appropriate.</td>
+  </tr>
+  <tr>
+  <th>bp_stats</th>
+  <td>FLOAT8. The Breush-Pagan statistic of heteroskedacity. Present
+  only if the heteroskedacity argument was set to True when the model was
+  trained.</td>
+  </tr>
+  <tr>
+  <th>bp_p_value</th>
+  <td>FLOAT8. The Breush-Pagan calculated p-value. Present only if
+  the heteroskedacity parameter was set to True when the model was
+  trained.</td>
+  </tr>
+  <tr>
+  <th>num_rows_processed</th>
+  <td>INTEGER. The number of rows that are actually used in each group.</td>
+  </tr>
+  <tr>
+  <th>num_missing_rows_skipped</th>
+  <td>INTEGER. The number of rows that have NULL values in the dependent and independent variables, and were skipped in the computation for each group.</td>
+  </tr></table>
+
+  A summary table named \<out_table\>_summary is created together with the output table. It has the following columns:
+ <table class="output">
+  <tr>
+<th>source_table</th>
+<td>The data source table name</td></tr>
+<tr><th>out_table</th>
+<td>The output table name</td></tr>
+<tr><th>dependent_varname</th>
+<td>The dependent variable</td></tr>
+<tr><th>independent_varname</th>
+<td>The independent variables</td></tr>
+<tr><th>num_rows_processed</th>
+<td>The total number of rows that were used in the computation.</td></tr>
+<tr><th>num_missing_rows_skipped</th>
+<td>The total number of rows that were skipped because of NULL values in them.</td>
+    </tr></table>
+</dd>
+<dt></dt>
+<dd>@note For p-values, we just return the computation result directly.
+Other statistical packages, like 'R', produce the same result, but on printing the
+result to screen, another format function is used and any p-value that is
+smaller than the machine epsilon (the smallest positive floating-point number
+'x' such that '1 + x != 1') will be printed on screen as "< xxx" (xxx is the
+value of the machine epsilon). Although the result may look different, they are
+in fact the same.
+</dd>
+
+<DT>dependent_varname</DT>
+<DD>TEXT. Expression to evaluate for the dependent variable.</DD>
+
+<DT>independent_varname</DT>
+<DD>TEXT. Expression list to evaluate for the independent variables. An intercept variable is not assumed. It is common to provide an explicit intercept term by including a single constant <tt>1</tt> term in the independent variable list.</DD>
+
+<DT>grouping_cols (optional)</DT>
+<DD>TEXT, default: NULL. An expression list used to group the input dataset into discrete groups, running one regression per group. Similar to the SQL <tt>GROUP BY</tt> clause. When this value is null, no grouping is used and a single result model is generated.</DD>
+
+<DT>heteroskedasticity_option (optional)</DT>
+<DD>BOOLEAN, default: FALSE. When TRUE, the heteroskedasticity of the model is also calculated and returned with the results.</DD>
+</DL>
+
+@anchor warning
+@warning The aggregate 'linregr' has been deprecated in favor of the function
+'linregr_train'. If the aggregate 'linregr' is used to output the results of
+linear regression to a table, it is recommended to follow the general pattern
+shown below (replace text within '<...>' with the appropriate variable names).
+<pre class="syntax">
+CREATE TABLE \<output table\> AS
+SELECT (r).*
+FROM (
+    SELECT linregr(\<dependent variable\>, \<independent variable\>) as r
+    FROM \<source table\>
+    ) q;
+</pre>
+
+
+@anchor predict
+@par Prediction Function
+<pre class="syntax">
+linregr_predict(coef, col_ind)
+</pre>
+\b Arguments
+<dl class="arglist">
+<dt>coef</dt>
+<dd>FLOAT8[]. Vector of the coefficients of regression.</dd>
+
+<dt>col_ind</dt>
+<dd>FLOAT8[]. An array containing the independent variable column names. </dd>
+
+@anchor examples
+@par Examples
+-#  Create an input data set.
+<pre class="example">
+CREATE TABLE houses (id INT, tax INT, bedroom INT, bath FLOAT, price INT,
+            size INT, lot INT);
+COPY houses FROM STDIN WITH DELIMITER '|';
+  1 |  590 |       2 |    1 |  50000 |  770 | 22100
+  2 | 1050 |       3 |    2 |  85000 | 1410 | 12000
+  3 |   20 |       3 |    1 |  22500 | 1060 |  3500
+  4 |  870 |       2 |    2 |  90000 | 1300 | 17500
+  5 | 1320 |       3 |    2 | 133000 | 1500 | 30000
+  6 | 1350 |       2 |    1 |  90500 |  820 | 25700
+  7 | 2790 |       3 |  2.5 | 260000 | 2130 | 25000
+  8 |  680 |       2 |    1 | 142500 | 1170 | 22000
+  9 | 1840 |       3 |    2 | 160000 | 1500 | 19000
+ 10 | 3680 |       4 |    2 | 240000 | 2790 | 20000
+ 11 | 1660 |       3 |    1 |  87000 | 1030 | 17500
+ 12 | 1620 |       3 |    2 | 118600 | 1250 | 20000
+ 13 | 3100 |       3 |    2 | 140000 | 1760 | 38000
+ 14 | 2070 |       2 |    3 | 148000 | 1550 | 14000
+ 15 |  650 |       3 |  1.5 |  65000 | 1450 | 12000
+\\.
+</pre>
+-#  Train a regression model. First, we generate a single regression for all data.  
+<pre class="example">
+SELECT madlib.linregr_train( 'houses',
+                             'houses_linregr',
+                             'price',
+                             'ARRAY[1, tax, bath, size]'
+                           );
+</pre>
+(Note that in this example we are dynamically creating the array of independent variables 
+from column names.  If you have large numbers of independent variables beyond the PostgreSQL 
+limit of maximum columns per table, you would pre-build the arrays and store them in a 
+single column.)
+-# Next we generate three output models, one for each value of "bedroom".
+<pre class="example">
+SELECT madlib.linregr_train( 'houses',
+                             'houses_linregr_bedroom',
+                             'price',
+                             'ARRAY[1, tax, bath, size]',
+                             'bedroom'
+                           );
+</pre>
+-# Examine the resulting models.
+<pre class="example">
+-- Set extended display on for easier reading of output
+\\x ON
+SELECT * FROM houses_linregr;
+</pre>
+Result:
+<pre class="result">
+-[ RECORD 1 ]+---------------------------------------------------------------------------
+coef         | {-12849.4168959872,28.9613922651765,10181.6290712648,50.516894915354}
+r2           | 0.768577580597443
+std_err      | {33453.0344331391,15.8992104963997,19437.7710925923,32.928023174087}
+t_stats      | {-0.38410317968819,1.82156166004184,0.523806408809133,1.53416118083605}
+p_values     | {0.708223134615422,0.0958005827189772,0.610804093526536,0.153235085548186}
+condition_no | 9002.50457085737
+</pre>
+-# View the results grouped by bedroom.
+<pre class="example">
+SELECT * FROM houses_linregr_bedroom;
+</pre>
+Result:
+<pre class="result">
+-[ RECORD 1 ]+--------------------------------------------------------------------------
+bedroom      | 2
+coef         | {-84242.0345406597,55.4430144648696,-78966.9753675319,225.611910021192}
+r2           | 0.968809546465313
+std_err      | {35018.9991665742,19.5731125320686,23036.8071292552,49.0448678148784}
+t_stats      | {-2.40560942761235,2.83261103077151,-3.42786111480046,4.60011251070697}
+p_values     | {0.250804617665239,0.21605133377602,0.180704400437373,0.136272031474122}
+condition_no | 10086.1048721726
+-[ RECORD 2 ]+--------------------------------------------------------------------------
+bedroom      | 4
+coef         | {0.0112536020318378,41.4132554771633,0.0225072040636757,31.3975496688276}
+r2           | 1
+std_err      | {0,0,0,0}
+t_stats      | {Infinity,Infinity,Infinity,Infinity}
+p_values     |
+condition_no | Infinity
+-[ RECORD 3 ]+--------------------------------------------------------------------------
+bedroom      | 3
+coef         | {-88155.8292501601,27.1966436294429,41404.0293363612,62.637521075324}
+r2           | 0.841699901311252
+std_err      | {57867.9999702625,17.8272309154689,43643.1321511114,70.8506824863954}
+t_stats      | {-1.52339512849005,1.52556747362508,0.948695185143966,0.884077878676067}
+p_values     | {0.188161432894871,0.187636685729869,0.386340032374927,0.417132778705789}
+condition_no | 11722.6225642147
+</pre>
+Alternatively you can unnest the results for easier reading of output.
+<pre class="example">
+\\x OFF
+SELECT unnest(ARRAY['intercept','tax','bath','size']) as attribute,
+       unnest(coef) as coefficient,
+       unnest(std_err) as standard_error,
+       unnest(t_stats) as t_stat,
+       unnest(p_values) as pvalue
+FROM houses_linregr;
+</pre>
+-# Use the prediction function to evaluate residuals.
+<pre class="example">
+SELECT houses.*,
+       madlib.linregr_predict( ARRAY[1,tax,bath,size],
+                               m.coef
+                             ) as predict,
+        price -
+          madlib.linregr_predict( ARRAY[1,tax,bath,size],
+                                  m.coef
+                                ) as residual
+FROM houses, houses_linregr m;
+</pre>
+
+@anchor notes
+@par Note
+All table names can be optionally schema qualified (current_schemas() would be
+searched if a schema name is not provided) and all table and column names
+should follow case-sensitivity and quoting rules per the database.
+(For instance, 'mytable' and 'MyTable' both resolve to the same entity, i.e. 'mytable'.
+If mixed-case or multi-byte characters are desired for entity names then the
+string should be double-quoted; in this case the input would be '"MyTable"').
+
+
+@anchor background
+@par Technical Background
+
+Ordinary least-squares (OLS) linear regression refers to a stochastic model in
+which the conditional mean of the dependent variable (usually denoted \f$ Y \f$)
+is an affine function of the vector of independent variables (usually denoted
+\f$ \boldsymbol x \f$). That is,
+\f[
+    E[Y \mid \boldsymbol x] = \boldsymbol c^T \boldsymbol x
+\f]
+for some unknown vector of coefficients \f$ \boldsymbol c \f$. The assumption is
+that the residuals are i.i.d. distributed Gaussians. That is, the (conditional)
+probability density of \f$ Y \f$ is given by
+\f[
+    f(y \mid \boldsymbol x)
+    =   \frac{1}{\sqrt{2 \pi \sigma^2}}
+        \cdot \exp\left(-\frac{1}{2 \sigma^2}
+            \cdot (y - \boldsymbol x^T \boldsymbol c)^2 \right)
+    \,.
+\f]
+OLS linear regression finds the vector of coefficients \f$ \boldsymbol c \f$
+that maximizes the likelihood of the observations.
+
+Let
+- \f$ \boldsymbol y \in \mathbf R^n \f$ denote the vector of observed dependent
+    variables, with \f$ n \f$ rows, containing the observed values of the
+    dependent variable,
+- \f$ X \in \mathbf R^{n \times k} \f$ denote the design matrix with \f$ k \f$
+  columns and \f$ n \f$ rows, containing all observed vectors of independent
+  variables.
+  \f$ \boldsymbol x_i \f$ as rows,
+- \f$ X^T \f$ denote the transpose of \f$ X \f$,
+- \f$ X^+ \f$ denote the pseudo-inverse of \f$ X \f$.
+
+Maximizing the likelihood is equivalent to maximizing the log-likelihood
+\f$ \sum_{i=1}^n \log f(y_i \mid \boldsymbol x_i) \f$, which simplifies to
+minimizing the <b>residual sum of squares</b> \f$ RSS \f$ (also called sum of
+squared residuals or sum of squared errors of prediction),
+\f[
+    RSS = \sum_{i=1}^n ( y_i - \boldsymbol c^T \boldsymbol x_i )^2
+        = (\boldsymbol y - X \boldsymbol c)^T (\boldsymbol y - X \boldsymbol c)
+    \,.
+\f]
+The first-order conditions yield that the \f$ RSS \f$ is minimized at
+\f[
+    \boldsymbol c = (X^T X)^+ X^T \boldsymbol y
+    \,.
+\f]
+
+Computing the <b>total sum of squares</b> \f$ TSS \f$, the <b>explained
+sum of squares</b> \f$ ESS \f$ (also called the regression sum of
+squares), and the <b>coefficient of determination</b> \f$ R^2 \f$ is
+done according to the following formulas:
+\f{align*}{
+    ESS & = \boldsymbol y^T X \boldsymbol c
+        -   \frac{ \| y \|_1^2 }{n} \\
+    TSS & = \sum_{i=1}^n y_i^2
+        -   \frac{ \| y \|_1^2 }{n} \\
+    R^2 & = \frac{ESS}{TSS}
+\f}
+Note: The last equality follows from the definition
+\f$ R^2 = 1 - \frac{RSS}{TSS} \f$ and the fact that for linear regression
+\f$ TSS = RSS + ESS \f$. A proof of the latter can be found, e.g., at:
+http://en.wikipedia.org/wiki/Sum_of_squares
+
+We estimate the variance
+\f$ Var[Y - \boldsymbol c^T \boldsymbol x \mid \boldsymbol x] \f$ as
+\f[
+    \sigma^2 = \frac{RSS}{n - k}
+\f]
+and compute the t-statistic for coefficient \f$ i \f$ as
+\f[
+    t_i = \frac{c_i}{\sqrt{\sigma^2 \cdot \left( (X^T X)^{-1} \right)_{ii} }}
+    \,.
+\f]
+
+The \f$ p \f$-value for coefficient \f$ i \f$ gives the probability of seeing a
+value at least as extreme as the one observed, provided that the null hypothesis
+(\f$ c_i = 0 \f$) is true. Letting \f$ F_\nu \f$ denote the
+cumulative density function of student-t with \f$ \nu \f$ degrees of freedom,
+the \f$ p \f$-value for coefficient \f$ i \f$
+is therefore
+\f[
+    p_i = \Pr(|T| \geq |t_i|) = 2 \cdot (1 - F_{n - k}( |t_i| ))
+\f]
+where \f$ T \f$ is a student-t distributed random variable with mean 0.
+
+The condition number [2] \f$ \kappa(X) = \|X\|_2\cdot\|X^{-1}\|_2\f$ is computed
+as the product of two spectral norms [3]. The spectral norm of a matrix \f$X\f$
+is the largest singular value of \f$X\f$ i.e. the square root of the largest
+eigenvalue of the positive-semidefinite matrix \f$X^{*}X\f$:
+
+\f[
+    \|X\|_2 = \sqrt{\lambda_{\max}\left(X^{*}X\right)}\ ,
+\f]
+where \f$X^{*}\f$ is the conjugate transpose of \f$X\f$.
+The condition number of a linear regression problem
+is a worst-case measure of how sensitive the
+result is to small perturbations of the input. A large condition number (say,
+more than 1000) indicates the presence of significant multicollinearity.
+
+@anchor literature
+@literature
+
+[1] Cosma Shalizi: Statistics 36-350: Data Mining, Lecture Notes, 21 October
+    2009, http://www.stat.cmu.edu/~cshalizi/350/lectures/17/lecture-17.pdf
+
+[2] Wikipedia: Condition Number, http://en.wikipedia.org/wiki/Condition_number.
+
+[3] Wikipedia: Spectral Norm,
+    http://en.wikipedia.org/wiki/Spectral_norm#Spectral_norm
+
+[4] Wikipedia: Breusch–Pagan test,
+    http://en.wikipedia.org/wiki/Breusch%E2%80%93Pagan_test
+
+[5] Wikipedia: Heteroscedasticity-consistent standard errors,
+http://en.wikipedia.org/wiki/Heteroscedasticity-consistent_standard_errors
+
+
+@anchor related
+@par Related Topics
+
+@ref grp_robust
+
+@ref grp_clustered_errors
+
+@ref grp_validation
+
+File linear.sql_in, source file for the SQL functions
+
+
+@internal
+@sa Namespace \ref madlib::modules::regress
+    documenting the implementation in C++
+@endinternal
+*/
+
+---------------------------------------------------------------------------
+-- User facing functions
+---------------------------------------------------------------------------
+/**
+ * @brief Linear regression training function with grouping support.
+ */
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linregr_train(
+    source_table                VARCHAR,    -- name of input  table
+    out_table                   VARCHAR,    -- name of output table
+    dependent_varname           VARCHAR,    -- name of dependent variable
+    independent_varname         VARCHAR,    -- name of independent variable
+    grouping_cols               VARCHAR,    -- names of columns to group-by
+    heteroskedasticity_option   BOOLEAN     -- do heteroskedasticity test or not
+) RETURNS VOID AS $$
+PythonFunction(regress, linear, linregr_train)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linregr_train(
+    source_table                VARCHAR,    -- name of input  table
+    out_table                   VARCHAR,    -- name of output table
+    dependent_varname           VARCHAR,    -- name of dependent variable
+    independent_varname         VARCHAR,    -- name of independent variable
+    grouping_cols               VARCHAR     -- names of columns to group-by
+) RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.linregr_train($1, $2, $3, $4, $5, FALSE);
+$$ LANGUAGE sql
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linregr_train(
+    source_table                VARCHAR,    -- name of input  table
+    out_table                   VARCHAR,    -- name of output table
+    dependent_varname           VARCHAR,    -- name of dependent variable
+    independent_varname         VARCHAR     -- name of independent variable
+) RETURNS VOID AS $$
+    SELECT MADLIB_SCHEMA.linregr_train($1, $2, $3, $4, NULL, FALSE);
+$$ LANGUAGE sql
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+---------------------------------------------------------------------------
+
+-----------------------------------------------------------------------
+-- Online help function
+-----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linregr_train()
+RETURNS VARCHAR AS $$
+BEGIN
+    RETURN MADLIB_SCHEMA.linregr_train('');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+----------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linregr_train(
+     message VARCHAR     -- usage string
+)
+RETURNS VARCHAR AS $$
+PythonFunction(regress, linear, linregr_help_message)
+$$ LANGUAGE plpythonu IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+----------------------------------------------------------------------
+
+
+-- Deprecated functions --------------------------------------------------------
+
+---------------------------------------------------------------------------
+-- Result Types
+---------------------------------------------------------------------------
+
+DROP TYPE IF EXISTS MADLIB_SCHEMA.linregr_result CASCADE;
+CREATE TYPE MADLIB_SCHEMA.linregr_result AS (
+    coef            DOUBLE PRECISION[],
+    r2              DOUBLE PRECISION,
+    std_err         DOUBLE PRECISION[],
+    t_stats         DOUBLE PRECISION[],
+    p_values        DOUBLE PRECISION[],
+    condition_no    DOUBLE PRECISION,
+    num_processed   BIGINT,
+    vcov            DOUBLE PRECISION[]
+);
+
+DROP TYPE IF EXISTS MADLIB_SCHEMA.heteroskedasticity_test_result CASCADE;
+CREATE TYPE MADLIB_SCHEMA.heteroskedasticity_test_result AS (
+    bp_stats DOUBLE PRECISION,
+    bp_p_value DOUBLE PRECISION
+);
+---------------------------------------------------------------------------
+
+
+---------------------------------------------------------------------------
+-- Functions for user-defined aggregates
+---------------------------------------------------------------------------
+-- normal
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linregr_transition(
+    state MADLIB_SCHEMA.bytea8,
+    y DOUBLE PRECISION,
+    x DOUBLE PRECISION[])
+RETURNS MADLIB_SCHEMA.bytea8
+AS 'MODULE_PATHNAME'
+LANGUAGE C
+IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linregr_merge_states(
+    state1 MADLIB_SCHEMA.bytea8,
+    state2 MADLIB_SCHEMA.bytea8)
+RETURNS MADLIB_SCHEMA.bytea8
+AS 'MODULE_PATHNAME'
+LANGUAGE C
+IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linregr_final(
+    state MADLIB_SCHEMA.bytea8)
+RETURNS MADLIB_SCHEMA.linregr_result
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+-- hetero
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.hetero_linregr_transition(
+    state MADLIB_SCHEMA.bytea8,
+    y DOUBLE PRECISION,
+    x DOUBLE PRECISION[],
+    coef DOUBLE PRECISION[])
+RETURNS MADLIB_SCHEMA.bytea8
+AS 'MODULE_PATHNAME'
+LANGUAGE C
+IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.hetero_linregr_merge_states(
+    state1 MADLIB_SCHEMA.bytea8,
+    state2 MADLIB_SCHEMA.bytea8)
+RETURNS MADLIB_SCHEMA.bytea8
+AS 'MODULE_PATHNAME'
+LANGUAGE C
+IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+-- Final functions
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.hetero_linregr_final(
+    state MADLIB_SCHEMA.bytea8)
+RETURNS MADLIB_SCHEMA.heteroskedasticity_test_result
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+---------------------------------------------------------------------------
+
+
+---------------------------------------------------------------------------
+-- User-defined aggregates
+---------------------------------------------------------------------------
+/**
+ * @brief Compute linear regression coefficients and diagnostic statistics.
+ *
+ * @param dependentVariable Column containing the dependent variable
+ * @param independentVariables Column containing the array of independent variables
+ *
+ * @par
+ * To include an intercept in the model, set one coordinate in the
+ * <tt>independentVariables</tt> array to 1.
+ *
+ * @return A composite value:
+ *  - <tt>coef FLOAT8[]</tt> - Array of coefficients, \f$ \boldsymbol c \f$
+ *  - <tt>r2 FLOAT8</tt> - Coefficient of determination, \f$ R^2 \f$
+ *  - <tt>std_err FLOAT8[]</tt> - Array of standard errors,
+ *    \f$ \mathit{se}(c_1), \dots, \mathit{se}(c_k) \f$
+ *  - <tt>t_stats FLOAT8[]</tt> - Array of t-statistics, \f$ \boldsymbol t \f$
+ *  - <tt>p_values FLOAT8[]</tt> - Array of p-values, \f$ \boldsymbol p \f$
+ *  - <tt>condition_no FLOAT8</tt> - The condition number of matrix
+ *    \f$ X^T X \f$.
+ *
+ * @usage
+ *  - Get vector of coefficients \f$ \boldsymbol c \f$ and all diagnostic
+ *    statistics:\n
+ *    <pre>SELECT (linregr(<em>dependentVariable</em>,
+ *        <em>independentVariables</em>)).*
+ *FROM <em>sourceName</em>;</pre>
+ *  - Get vector of coefficients \f$ \boldsymbol c \f$:\n
+ *    <pre>SELECT (linregr(<em>dependentVariable</em>,
+ *        <em>independentVariables</em>)).coef
+ *FROM <em>sourceName</em>;</pre>
+ *  - Get a subset of the output columns, e.g., only the array of coefficients
+ *    \f$ \boldsymbol c \f$, the coefficient of determination \f$ R^2 \f$, and
+ *    the array of p-values \f$ \boldsymbol p \f$:
+ *    <pre>SELECT (lr).coef, (lr).r2, (lr).p_values
+ *FROM (
+ *    SELECT linregr( <em>dependentVariable</em>,
+ *                    <em>independentVariables</em>) AS lr
+ *    FROM <em>sourceName</em>
+ *) AS subq;</pre>
+ */
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.linregr(DOUBLE PRECISION, DOUBLE PRECISION []);
+CREATE AGGREGATE MADLIB_SCHEMA.linregr(
+    /*+ "dependentVariable" */ DOUBLE PRECISION,
+    /*+ "independentVariables" */ DOUBLE PRECISION[]) (
+
+    SFUNC=MADLIB_SCHEMA.linregr_transition,
+    STYPE=MADLIB_SCHEMA.bytea8,
+    FINALFUNC=MADLIB_SCHEMA.linregr_final,
+    m4_ifdef(`__POSTGRESQL__', `', `prefunc=MADLIB_SCHEMA.linregr_merge_states,')
+    INITCOND=''
+);
+
+/**
+ * @brief Compute studentized Breuch-Pagan heteroskedasticity test for
+ * linear regression.
+ *
+ * @param dependentVariable Column containing the dependent variable
+ * @param independentVariables Column containing the array of independent variables
+ * @param olsCoefficients Column containing the array of the OLS coefficients (as obtained by linregr)
+ *
+ * @par
+ * To include an intercept in the model, set one coordinate in the
+ * <tt>independentVariables</tt> array to 1.
+ *
+ * @return A composite value:
+ *  - <tt>test_statistic FLOAT8[]</tt> - Prob > test_statistc
+ *  - <tt>p_value FLOAT8[]</tt> - Prob > test_statistc
+ *
+ * @usage
+ *  <pre> SELECT (heteoskedasticity_test_linregr(<em>dependentVariable</em>,
+ *  <em>independentVariables</em>, coef)).*
+ *  FROM (
+ *    SELECT linregr(<em>dependentVariable</em>, <em>independentVariables</em>).coef
+ *  ) AS ols_coef, <em>sourceName</em> as src;
+ * </pre>
+ */
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.heteroskedasticity_test_linregr(
+    DOUBLE PRECISION, DOUBLE PRECISION [], DOUBLE PRECISION []);
+CREATE AGGREGATE MADLIB_SCHEMA.heteroskedasticity_test_linregr(
+    /*+ "dependentVariable" */ DOUBLE PRECISION,
+    /*+ "independentVariables" */ DOUBLE PRECISION[],
+    /*+ "olsCoefficients" */ DOUBLE PRECISION[]) (
+
+    SFUNC=MADLIB_SCHEMA.hetero_linregr_transition,
+    STYPE=MADLIB_SCHEMA.bytea8,
+    FINALFUNC=MADLIB_SCHEMA.hetero_linregr_final,
+    m4_ifdef(`__POSTGRESQL__', `', `prefunc=MADLIB_SCHEMA.hetero_linregr_merge_states,')
+    INITCOND=''
+);
+---------------------------------------------------------------------------
+
+/**
+ * @brief Predict the boolean value of a dependent variable for a specific
+ *        independent variable value in a linear regression model
+ *
+ * @param coef Coefficients obtained by running linear regression.
+ * @param col_ind Independent variable array
+ * @returns DOUBLE PRECISION Predicted value
+ *
+ * This function computes the dot product of the independent variables and the
+ * coefficients. This requires the length of the two vectors to be the same.
+ *
+ */
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linregr_predict(
+    coef            DOUBLE PRECISION[],
+    col_ind_var     DOUBLE PRECISION[]
+) RETURNS DOUBLE PRECISION
+AS 'MODULE_PATHNAME', 'array_dot'
+LANGUAGE c IMMUTABLE STRICT;
+
+-- Help messages -------------------------------------------------------
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linregr_predict(
+    message    TEXT
+) RETURNS TEXT AS $$
+    PythonFunction(regress, linear, linregr_predict_help_message)
+$$ LANGUAGE plpythonu IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linregr_predict()
+RETURNS TEXT
+AS $$
+    SELECT MADLIB_SCHEMA.linregr_predict(''::TEXT);
+$$
+LANGUAGE sql IMMUTABLE;
+-------------------------------------------------------------

@@ -1,0 +1,289 @@
+/* ----------------------------------------------------------------------- */
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ *
+ * @file sessionize.sql_in
+ *
+ * @brief SQL functions for sessionization functions
+ * @date May 2016
+ *
+ */
+/* ----------------------------------------------------------------------- */
+
+m4_include(`SQLCommon.m4')
+
+/**
+@addtogroup grp_sessionize
+
+<div class="toc"><b>Contents</b>
+<ul>
+<li><a href="#syntax">Function Syntax</a></li>
+<li><a href="#examples">Examples</a></li>
+<li><a href="#literature">Literature</a></li>
+</ul>
+</div>
+
+@brief Sessionize
+@details The MADlib sessionize function performs time-oriented session reconstruction
+on a data set comprising a sequence of events.  A defined period of inactivity
+indicates the end of one session and beginning of the next session.  Sessions can be 
+useful in many domains including web analytics [1], network security, manufacturing, finance, 
+and operational analytics.
+
+@anchor syntax
+@par Function Syntax
+<pre class="syntax">
+sessionize(
+   source_table,
+   output_table,
+   partition_expr,
+   time_stamp,
+   max_time,
+   output_cols,
+   create_view
+)
+</pre>
+
+\b Arguments
+<dl class="arglist">
+    <dt>source_table</dt>
+    <dd>VARCHAR. Name of the source table that contains the data to be sessionized.</dd>
+
+    <dt>output_table</dt>
+    <dd>VARCHAR. Name of the output view or table.  (The parameter create_view described below 
+    defines whether the output is actually a view or a table.)  In addition to the columns in the 
+    source_table, the output also contains a new column called session_id:
+    <ul>
+        <li>session_id=1,2,...n where n is the number of the session in the partition.</li>
+    </ul>
+    </dd>
+
+    <dt>partition_expr</dt>
+    <dd>VARCHAR. The 'partition_expr' is a single column or a list of
+    comma-separated columns/expressions to divide all rows into groups,
+    or partitions. Sessionization is applied across the rows that fall into
+    the same partition.  This parameter can be set to NULL or '' to indicate 
+    the sessionization operation is to be applied to the whole input table.</dd>
+
+    <dt>time_stamp</dt>
+    <dd>VARCHAR. The time stamp column name that is used for sessionization calculation.  
+    Note that the time_stamp column will be sorted in ascending order before
+    the session reconstruction is done within a partition.</dd>
+
+    <dt>max_time</dt>
+    <dd>INTERVAL.  Maximum delta time (i.e., time out) between subsequent events that define a session.
+    If the elapsed time between subsequent events is longer than max_time, a new session is created.</dd>
+
+@anchor note
+@note
+        Note that max_time is of time type INTERVAL which is a PostgreSQL way of describing elapsed
+        time.  For more information on INTERVAL please refer to reference [2].
+
+    <dt>output_cols (optional)</dt>
+    <dd>VARCHAR. An optional comma separated list of columns to be written to the output_table.
+    Must be a valid SELECT expression.  This is set to '*' by default, which means all columns in the 
+    input table will be written to the output_table plus the session_id column.  
+    Note that this parameter could include a list containing the partition_expr 
+    or any other expressions of interest.  E.g., '*, expr1, expr2, etc.' where this means 
+    output all columns from the input table plus the expressions listed plus the session_id column.</dd>
+
+    <dt>create_view (optional)</dt>
+    <dd>BOOLEAN default: TRUE.  Determines whether to create a view or materialize the output as a table. 
+    If you only need session info once, creating a view could be significantly 
+    faster than materializing as a table.  Please note that if you set create_view to NULL 
+    (allowed by PostgreSQL) it will get set to the default value of TRUE.</dd>
+</dl>
+
+@anchor examples
+@examp
+
+The data set describes shopper behavior on a notional web site that sells
+beer and wine. A beacon fires an event to a log file when the shopper
+visits different pages on the site:  landing page, beer selection page,
+wine selection page, and checkout. Each user is identified by a a user id,
+and every time a page is visited, the page and time stamp are logged.
+
+Create the data table:
+
+<pre class="example">
+DROP TABLE IF EXISTS eventlog CASCADE;  -- Using CASCADE in case you are running through this example more than once (views used below)
+CREATE TABLE eventlog (event_timestamp TIMESTAMP,
+            user_id INT,
+            page TEXT,
+            revenue FLOAT);
+INSERT INTO eventlog VALUES
+('04/15/2015 02:19:00', 101331, 'CHECKOUT', 16),
+('04/15/2015 02:17:00', 202201, 'WINE', 0),
+('04/15/2015 03:18:00', 202201, 'BEER', 0),
+('04/15/2015 01:03:00', 100821, 'LANDING', 0),
+('04/15/2015 01:04:00', 100821, 'WINE', 0),
+('04/15/2015 01:05:00', 100821, 'CHECKOUT', 39),
+('04/15/2015 02:06:00', 100821, 'WINE', 0),
+('04/15/2015 02:09:00', 100821, 'WINE', 0),
+('04/15/2015 02:15:00', 101331, 'LANDING', 0),
+('04/15/2015 02:16:00', 101331, 'WINE', 0),
+('04/15/2015 02:17:00', 101331, 'HELP', 0),
+('04/15/2015 02:18:00', 101331, 'WINE', 0),
+('04/15/2015 02:29:00', 201881, 'LANDING', 0),
+('04/15/2015 02:30:00', 201881, 'BEER', 0),
+('04/15/2015 01:05:00', 202201, 'LANDING', 0),
+('04/15/2015 01:06:00', 202201, 'HELP', 0),
+('04/15/2015 01:09:00', 202201, 'LANDING', 0),
+('04/15/2015 02:15:00', 202201, 'WINE', 0),
+('04/15/2015 02:16:00', 202201, 'BEER', 0),
+('04/15/2015 03:19:00', 202201, 'WINE', 0),
+('04/15/2015 03:22:00', 202201, 'CHECKOUT', 21);
+</pre>
+
+Sessionize the table by each user_id:
+<pre class="example">
+ DROP VIEW IF EXISTS sessionize_output_view;
+ SELECT madlib.sessionize(
+     'eventlog',             -- Name of input table
+     'sessionize_output_view',   -- View to store sessionize results
+     'user_id',             -- Partition input table by user id
+     'event_timestamp',      -- Time column used to compute sessions
+     '0:30:0'                -- Use 30 minute time out to define sessions
+    );
+SELECT * FROM sessionize_output_view ORDER BY user_id, event_timestamp;
+</pre>
+
+Result:
+<pre class="result">
+   event_timestamp   | user_id |   page   | revenue | session_id 
+---------------------+---------+----------+---------+------------
+ 2015-04-15 01:03:00 |  100821 | LANDING  |       0 |          1
+ 2015-04-15 01:04:00 |  100821 | WINE     |       0 |          1
+ 2015-04-15 01:05:00 |  100821 | CHECKOUT |      39 |          1
+ 2015-04-15 02:06:00 |  100821 | WINE     |       0 |          2
+ 2015-04-15 02:09:00 |  100821 | WINE     |       0 |          2
+ 2015-04-15 02:15:00 |  101331 | LANDING  |       0 |          1
+ 2015-04-15 02:16:00 |  101331 | WINE     |       0 |          1
+ 2015-04-15 02:17:00 |  101331 | HELP     |       0 |          1
+ 2015-04-15 02:18:00 |  101331 | WINE     |       0 |          1
+ 2015-04-15 02:19:00 |  101331 | CHECKOUT |      16 |          1
+ 2015-04-15 02:29:00 |  201881 | LANDING  |       0 |          1
+ 2015-04-15 02:30:00 |  201881 | BEER     |       0 |          1
+ 2015-04-15 01:05:00 |  202201 | LANDING  |       0 |          1
+ 2015-04-15 01:06:00 |  202201 | HELP     |       0 |          1
+ 2015-04-15 01:09:00 |  202201 | LANDING  |       0 |          1
+ 2015-04-15 02:15:00 |  202201 | WINE     |       0 |          2
+ 2015-04-15 02:16:00 |  202201 | BEER     |       0 |          2
+ 2015-04-15 02:17:00 |  202201 | WINE     |       0 |          2
+ 2015-04-15 03:18:00 |  202201 | BEER     |       0 |          3
+ 2015-04-15 03:19:00 |  202201 | WINE     |       0 |          3
+ 2015-04-15 03:22:00 |  202201 | CHECKOUT |      21 |          3
+(21 rows)
+</pre>
+
+Now let's say we want to see 3 minute sessions by a group of users
+with a certain range of user IDs.  To do this, we need to sessionize 
+the table based on a partition expression.  Also, we want to persist
+a table output with a reduced set of columns in the table.
+<pre class="example">
+ DROP TABLE IF EXISTS sessionize_output_table;
+ SELECT madlib.sessionize(
+     'eventlog',                    -- Name of input table
+     'sessionize_output_table',     -- Table to store sessionize results
+     'user_id < 200000',            -- Partition input table by subset of users
+     'event_timestamp',             -- Order partitions in input table by time
+     '180',                         -- Use 180 second time out to define sessions (same as '0:03:0')
+     'event_timestamp, user_id, user_id < 200000 AS "Department-A1"',    -- Select only user_id and event_timestamp columns, along with the session id as output
+     'f'                            -- create a table
+     );
+ SELECT * FROM sessionize_output_table WHERE "Department-A1"='TRUE' ORDER BY event_timestamp;
+</pre>
+
+Result showing 2 users and 3 total sessions across the group:
+<pre class="result">
+   event_timestamp   | user_id | Department-A1 | session_id 
+---------------------+---------+---------------+------------
+ 2015-04-15 01:03:00 |  100821 | t             |          1
+ 2015-04-15 01:04:00 |  100821 | t             |          1
+ 2015-04-15 01:05:00 |  100821 | t             |          1
+ 2015-04-15 02:06:00 |  100821 | t             |          2
+ 2015-04-15 02:09:00 |  100821 | t             |          2
+ 2015-04-15 02:15:00 |  101331 | t             |          3
+ 2015-04-15 02:16:00 |  101331 | t             |          3
+ 2015-04-15 02:17:00 |  101331 | t             |          3
+ 2015-04-15 02:18:00 |  101331 | t             |          3
+ 2015-04-15 02:19:00 |  101331 | t             |          3
+(10 rows)
+</pre>
+
+@anchor literature
+@par Literature
+
+[1] Sesssions in web analytics
+https://en.wikipedia.org/wiki/Session_(web_analytics)
+
+[2] PostgreSQL date/time types
+https://www.postgresql.org/docs/8.4/static/datatype-datetime.html
+
+*/
+-------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.sessionize(
+    source_table        VARCHAR,
+    output_table        VARCHAR,
+    partition_expr      VARCHAR,
+    time_stamp  VARCHAR,
+    max_time    INTERVAL,
+    output_cols VARCHAR,
+    create_view BOOLEAN
+) RETURNS void AS $$
+PythonFunction(utilities, sessionize, sessionize)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.sessionize(
+    source_table        VARCHAR,
+    output_table        VARCHAR,
+    partition_expr      VARCHAR,
+    time_stamp  VARCHAR,
+    max_time    INTERVAL,
+    output_cols VARCHAR
+) RETURNS void AS $$
+    SELECT MADLIB_SCHEMA.sessionize($1, $2, $3, $4, $5, $6, True);
+$$ LANGUAGE SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.sessionize(
+    source_table        VARCHAR,
+    output_table        VARCHAR,
+    partition_expr      VARCHAR,
+    time_stamp  VARCHAR,
+    max_time    INTERVAL
+) RETURNS void AS $$
+    SELECT MADLIB_SCHEMA.sessionize($1, $2, $3, $4, $5, '*', True);
+$$ LANGUAGE SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+-------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.sessionize(message TEXT)
+RETURNS text AS $$
+PythonFunction(utilities, sessionize, sessionize_help_message)
+$$ language plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.sessionize()
+RETURNS text AS $$
+    SELECT MADLIB_SCHEMA.sessionize('');
+$$ language SQL
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+

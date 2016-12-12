@@ -1,0 +1,714 @@
+/* ----------------------------------------------------------------------- *//**
+ *
+ * @file sparse_linear_systems.sql_in
+ *
+ * @brief SQL functions for linear systems
+ * @date January 2011
+ *
+ * @sa Computes the solution of a consistent linear system
+ *
+ *//* ----------------------------------------------------------------------- */
+
+m4_include(`SQLCommon.m4')
+
+
+/**
+@addtogroup grp_sparse_linear_solver
+
+<div class ="toc"><b>Contents</b>
+<ul>
+<li class="level1"><a href="#sls_usage">Solution Function</a></li>
+<li class="level1"><a href="#sls_opt_params">Optimizer Parameters</a></li>
+<li class="level1"><a href="#sls_output">Output Tables</a></li>
+<li class="level1"><a href="#sls_examples">Examples</a></li>
+<li><a href="related">Related Topics</a></li>
+</ul>
+</div>
+
+@brief Implements solution methods for linear systems with sparse matrix input.
+Currently, restricted to problems that fit in memory.
+
+The sparse linear systems module implements solution methods for systems of consistent
+linear equations. Systems of linear equations take the form:
+\f[
+  Ax = b
+\f]
+
+where \f$x \in \mathbb{R}^{n}\f$, \f$A \in \mathbb{R}^{m \times n} \f$ and \f$b \in \mathbb{R}^{m}\f$.
+This module accepts sparse matrix input formats for \f$A\f$ and \f$b\f$.
+We assume that there are no rows of \f$A\f$ where all elements are zero.
+
+@note Algorithms with fail if there is an row of the input matrix containing all zeros.
+
+The algorithms implemented in this module can handle large sparse
+square linear systems. Currently, the algorithms implemented in this module
+solve the linear system using direct or iterative methods.
+
+
+@anchor sls_usage
+@par Sparse Linear Systems Solution Function
+
+<pre class="syntax">
+linear_solver_sparse( tbl_source_lhs,
+                      tbl_source_rhs,
+                      tbl_result,
+                      lhs_row_id,
+                      lhs_col_id,
+                      lhs_value,
+                      rhs_row_id,
+                      rhs_value,
+                      grouping_cols := NULL,
+                      optimizer := 'direct',
+                      optimizer_params :=
+                      'algorithm = llt'
+                    )
+</pre>
+\b Arguments
+<DL class="arglist">
+<DT>tbl_source_lhs</DT>
+<DD>The name of the table containing the left hand side matrix.
+For the LHS matrix, the input data is expected to be of the following form:
+<pre>
+{TABLE|VIEW} <em>sourceName</em> (
+    ...
+    <em>row_id</em> FLOAT8,
+    <em>col_id</em> FLOAT8,
+    <em>value</em> FLOAT8,
+    ...
+)</pre>
+Each row represents a single equation. The <em>rhs</em> columns refer
+to the right hand side of the equations and the <em>lhs</em> columns
+refer to the multipliers on the variables on the left hand side of the same
+equations.
+</DD>
+
+<DT>tbl_source_rhs</DT>
+<DD>TEXT. The name of the table containing the right hand side vector.
+For the RHS matrix, the input data is expected to be of the following form:
+@verbatim {TABLE|VIEW} <em>sourceName</em> (
+    ...
+    <em>row_id</em> FLOAT8,
+    <em>value</em> FLOAT8
+    ...
+)@endverbatim
+Each row represents a single equation. The <em>rhs</em> columns refer
+to the right hand side of the equations while the <em>lhs</em> columns
+refers to the multipliers on the variables on the left hand side of the same
+equations.
+</DD>
+
+<DT>tbl_result</DT>
+<DD>TEXT. The name of the table where the output is saved.
+  Output is stored in the tabled named by the <em>tbl_result</em> argument. The table contains the following columns.
+ The output contains the following columns:
+<table class="output">
+  <tr>
+    <th>solution</th>
+    <td>FLOAT8[]. The solution is an array with the variables in the same
+      order as that provided as input in the 'left_hand_side' column name of the
+      'source_table'
+    </td>
+  </tr>
+  <tr>
+    <th>residual_norm</th>
+    <td> FLOAT8. Scaled residual norm, defined as \f$ \frac{|Ax - b|}{|b|} \f$.
+      This value is an indication of the accuracy of the solution.
+    </td>
+  </tr>
+  <tr>
+    <th>iters</th>
+    <td>INTEGER. Number of iterations required by the algorithm (only applicable for
+      iterative algorithms) . The output is NULL for 'direct' methods.
+    </td>
+  </tr>
+</table>
+</DD>
+
+<DT>lhs_row_id</DT>
+<DD>TEXT. The name of the column storing the 'row id' of the equations.</DD>
+@note For a system with N equations, the row_id's must be a continuous
+range of integers from \f$ 0 \ldots n-1 \f$.
+
+<DT>lhs_col_id</DT>
+<DD>TEXT. The name of the column (in tbl_source_lhs) storing the 'col id' of the equations.</DD>
+
+<DT>lhs_value</DT>
+<DD>TEXT. The name of the column (in tbl_source_lhs) storing the 'value' of the equations.</DD>
+
+<DT>rhs_row_id</DT>
+<DD>TEXT. The name of the column (in tbl_source_rhs) storing the 'col id' of the equations.</DD>
+
+<DT>rhs_value</DT>
+<DD>TEXT. The name of the column (in tbl_source_rhs) storing the 'value' of the equations.</DD>
+
+<DT>num_vars</DT>
+<DD>INTEGER. The number of variables in the linear system equations.</DD>
+
+<DT>grouping_col (optional) </DT>
+<DD>TEXT, default: NULL. Group by column names.</DD>
+@note The grouping feature is currently not implemented and this parameter is only a placeholder.
+
+<DT>optimizer (optional) </DT>
+<DD>TEXT, default: 'direct'. Type of optimizer.</DD>
+
+<DT>optimizer_params (optional)</DT>
+<DD>TEXT, default: NULL. Optimizer specific parameters.</DD>
+</DL>
+
+@anchor sls_opt_params
+@par Optimizer Parameters
+
+For each optimizer, there are specific parameters that can be tuned
+for better performance.
+
+<DL class="arglist">
+<DT>algorithm (default: ldlt)</dT>
+<DD>
+
+  There are several algorithms that can be classified as 'direct' methods
+  of solving linear systems. Madlib functions provide various algorithmic
+  options available for users.
+
+  The following table provides a guideline on the choice of algorithm based
+  on conditions on the A matrix, speed of the algorithms and numerical stability.
+
+@verbatim
+    Algorithm          | Conditions on A  | Speed | Memory
+    ----------------------------------------------------------
+    llt                | Sym. Pos Def     |  ++   |  ---
+    ldlt               | Sym. Pos Def     |  ++   |  ---
+
+    For speed '++' is faster than '+', which is faster than '-'.
+    For accuracy '+++' is better than '++'.
+    For memory, '-' uses less memory than '--'.
+
+    Note: ldlt is often preferred over llt
+@endverbatim
+
+  There are several algorithms that can be classified as 'iterative' methods
+  of solving linear systems. Madlib functions provide various algorithmic
+  options available for users.
+
+  The following table provides a guideline on the choice of algorithm based
+  on conditions on the A matrix, speed of the algorithms and numerical stability.
+
+@verbatim
+    Algorithm            | Conditions on A  | Speed | Memory | Convergence
+    ----------------------------------------------------------------------
+    cg-mem               | Sym. Pos Def     |  +++  |   -    |    ++
+    bicgstab-mem         | Square           |  ++   |   -    |    +
+    precond-cg-mem       | Sym. Pos Def     |  ++   |   -    |    +++
+    precond-bicgstab-mem | Square           |  +    |   -    |    ++
+
+    For memory, '-' uses less memory than '--'.
+    For speed, '++' is faster than '+'.
+@endverbatim
+
+Algorithm Details:
+<table class="output">
+  <tr>
+    <th>cg-mem</th><td>In memory conjugate gradient with diagonal preconditioners.</td>
+  </tr>
+  <tr>
+    <th>bicgstab-mem</th><td>Bi-conjugate gradient (equivalent to performing CG on the least squares formulation of Ax=b) with incomplete LU preconditioners.</td>
+  </tr>
+  <tr>
+    <th>precond-cg-mem</th><td>In memory conjugate gradient with diagonal preconditioners.</td>
+  </tr>
+  <tr>
+    <th>bicgstab-mem</th><td>Bi-conjugate gradient (equivalent to performing CG on the least squares formulation of Ax=b) with incomplete LU preconditioners.</td>
+  </tr>
+</table>
+</DD>
+
+<DT>toler (default: 1e-5)</DT>
+<DD> Termination tolerance (applicable only for iterative methods) which
+determines the stopping criterion (with respect to residual norm) for iterative methods.
+</DD>
+
+</DL>
+
+
+@anchor sls_examples
+@examp
+
+-# View online help for the sparse linear systems solver function.
+<pre class="example">
+SELECT madlib.linear_solver_sparse();
+</pre>
+
+
+-#  Create the sample data set.
+<pre class="example">
+DROP TABLE IF EXISTS sparse_linear_systems_lhs;
+CREATE TABLE sparse_linear_systems_lhs (
+    rid INTEGER NOT NULL,
+    cid  INTEGER,
+    val DOUBLE PRECISION
+);
+DROP TABLE IF EXISTS sparse_linear_systems_rhs;
+CREATE TABLE sparse_linear_systems_rhs (
+    rid INTEGER NOT NULL,
+    val DOUBLE PRECISION
+);
+INSERT INTO sparse_linear_systems_lhs(rid, cid, val) VALUES
+(0, 0, 1),
+(1, 1, 1),
+(2, 2, 1),
+(3, 3, 1);
+INSERT INTO sparse_linear_systems_rhs(rid, val) VALUES
+(0, 10),
+(1, 20),
+(2, 30);
+</pre>
+
+-# Solve the linear systems with default parameters.
+<pre class="example">
+SELECT madlib.linear_solver_sparse( 'sparse_linear_systems_lhs',
+                                    'sparse_linear_systems_rhs',
+                                    'output_table',
+                                    'rid',
+                                    'cid',
+                                    'val',
+                                    'rid',
+                                    'val',
+                                    4
+                                  );
+</pre>
+
+-# View the contents of the output table.
+<pre class="example">
+\\x on
+SELECT * FROM output_table;
+</pre>
+Result:
+<pre class="result">
+--------------------+-------------------------------------
+solution            | {10,20,30,0}
+residual_norm       | 0
+iters               | NULL
+</pre>
+
+-# Choose a different algorithm than the default algorithm.
+<pre class="example">
+DROP TABLE IF EXISTS output_table;
+SELECT madlib.linear_solver_sparse( 'sparse_linear_systems_lhs',
+                                    'sparse_linear_systems_rhs',
+                                    'output_table',
+                                    'rid',
+                                    'cid',
+                                    'val',
+                                    'rid',
+                                    'val',
+                                    4,
+                                    NULL,
+                                    'direct',
+                                    'algorithm=llt'
+                                  );
+</pre>
+
+-# Choose a different algorithm than the default algorithm.
+<pre class="example">
+DROP TABLE IF EXISTS output_table;
+SELECT madlib.linear_solver_sparse(
+                                    'sparse_linear_systems_lhs',
+                                    'sparse_linear_systems_rhs',
+                                    'output_table',
+                                    'rid',
+                                    'cid',
+                                    'val',
+                                    'rid',
+                                    'val',
+                                    4,
+                                    NULL,
+                                    'iterative',
+                                    'algorithm=cg-mem, toler=1e-5'
+                                  );
+</pre>
+
+
+@anchor related
+@par Related Topics
+File sparse_linear_sytems.sql_in documenting the SQL functions.
+
+@internal
+@sa Namespace \ref madlib::modules::linear_systems documenting the implementation in C++
+@endinternal
+*/
+
+
+------------------ Linear Systems  ------------------------------
+
+DROP TYPE IF EXISTS MADLIB_SCHEMA.sparse_linear_solver_result CASCADE;
+CREATE TYPE MADLIB_SCHEMA.sparse_linear_solver_result AS (
+    solution      DOUBLE PRECISION[],
+    residual_norm DOUBLE PRECISION,
+    iters         INTEGER
+);
+
+------------------ In memory Iterative ------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.sparse_inmem_iterative_linear_system_transition(
+    state       DOUBLE PRECISION[],
+    row_id      INTEGER,
+    col_id      INTEGER,
+    value       DOUBLE PRECISION,
+    b           DOUBLE PRECISION,
+    num_eqs     INTEGER,
+    num_vars    INTEGER,
+    nnz         INTEGER,
+    algorithm   INTEGER,
+    maxIter     INTEGER,
+    termToler   DOUBLE PRECISION)
+RETURNS DOUBLE PRECISION[]
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.sparse_inmem_iterative_linear_system_merge_states(
+    state1 DOUBLE PRECISION[],
+    state2 DOUBLE PRECISION[])
+RETURNS DOUBLE PRECISION[]
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.sparse_inmem_iterative_linear_system_final(
+    state DOUBLE PRECISION[])
+RETURNS MADLIB_SCHEMA.sparse_linear_solver_result
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+/**
+ * @brief Solve a system of linear equations using the inmem_iterative method
+ *
+ * @param row_id Column containing the row_id
+ * @param col_id Column containing the col_id
+ * @param value Value of the LHS matrix
+ * @param right_hand_side Column containing the right hand side of the system
+ * @param numEquations Number of equations
+ * @param numVars Number of variables
+ * @param nnz Number of non-zero values
+ * @param algorithm Algorithm used for the sparse linear solver
+ * @param maxIter Maximum number of iterations
+ * @param termToler Termination tolerance
+ *
+ *
+ * @return A composite value:
+ *  - <tt>solution FLOAT8[] </tt>          - Array of marginal effects
+ *  - <tt>residual_norm FLOAT8</tt>        - Norm of the residual
+ *  - <tt>iters INTEGER</tt>               - Iterations taken
+ *
+ * @usage
+ *  - Get all the diagnostic statistics:\n
+ *
+ *  @verbatim SELECT linear_system_sparse(<em>row_id</em>,
+ *	                                 <em>left_hand_side</em>,
+ *	                                 <em> right_hand_side </em>,
+ *	                                 <em> numEquations </em>)
+ *	FROM <em>dataTable</em>;
+ * @endverbatim
+ */
+
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.sparse_inmem_iterative_linear_system(
+	/*+ "row_id" */           INTEGER,
+	/*+ "col_id" */           INTEGER,
+	/*+ "value" */            DOUBLE PRECISION,
+    /*+ "right_hand_side" */  DOUBLE PRECISION,
+    /*+ "numEquations" */     INTEGER,
+    /*+ "numVars" */          INTEGER,
+    /*+ "nnz" */              INTEGER,
+    /*+ "algorithm" */        INTEGER,
+    /*+ "maxIter" */          INTEGER,
+    /*+ "termToler" */        DOUBLE PRECISION
+);
+CREATE AGGREGATE MADLIB_SCHEMA.sparse_inmem_iterative_linear_system(
+	/*+ "row_id" */           INTEGER,
+	/*+ "col_id" */           INTEGER,
+	/*+ "value" */            DOUBLE PRECISION,
+    /*+ "right_hand_side" */  DOUBLE PRECISION,
+    /*+ "numEquations" */     INTEGER,
+    /*+ "numVars" */          INTEGER,
+    /*+ "nnz" */              INTEGER,
+    /*+ "algorithm" */        INTEGER,
+    /*+ "maxIter" */          INTEGER,
+    /*+ "termToler" */        DOUBLE PRECISION)(
+    STYPE=DOUBLE PRECISION[],
+    SFUNC=MADLIB_SCHEMA.sparse_inmem_iterative_linear_system_transition,
+    m4_ifdef(`__POSTGRESQL__', `', `PREFUNC=MADLIB_SCHEMA.sparse_inmem_iterative_linear_system_merge_states,')
+    FINALFUNC=MADLIB_SCHEMA.sparse_inmem_iterative_linear_system_final,
+    INITCOND='{0,0,0,0,0,0,0,0}'
+);
+
+------------------ Direct Method ------------------------------
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.sparse_direct_linear_system_transition(
+    state       DOUBLE PRECISION[],
+    row_id      INTEGER,
+    col_id      INTEGER,
+    value       DOUBLE PRECISION,
+    b           DOUBLE PRECISION,
+    num_eqs     INTEGER,
+    num_vars    INTEGER,
+    nnz         INTEGER,
+    algorithm INTEGER)
+RETURNS DOUBLE PRECISION[]
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.sparse_direct_linear_system_merge_states(
+    state1 DOUBLE PRECISION[],
+    state2 DOUBLE PRECISION[])
+RETURNS DOUBLE PRECISION[]
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.sparse_direct_linear_system_final(
+    state DOUBLE PRECISION[])
+RETURNS MADLIB_SCHEMA.sparse_linear_solver_result
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+
+/**
+ * @brief Solve a system of linear equations using the direct method
+ *
+ * @param row_id Column containing the row_id
+ * @param col_id Column containing the col_id
+ * @param value Value of the LHS matrix
+ * @param right_hand_side Column containing the right hand side of the system
+ * @param numEquations Number of equations
+ * @param numVars Number of variables
+ * @param nnz Number of non-zero values
+ * @param algorithm Algorithm used for the sparse linear solver
+ *
+ *
+ * @return A composite value:
+ *  - <tt>solution FLOAT8[] </tt>          - Array of marginal effects
+ *  - <tt>residual_norm FLOAT8</tt>        - Norm of the residual
+ *  - <tt>iters INTEGER</tt>               - Iterations taken
+ *
+ * @usage
+ *  - Get all the diagnostic statistics:\n
+ *
+ *  @verbatim SELECT linear_system_sparse(<em>row_id</em>,
+ *	                                 <em>left_hand_side</em>,
+ *	                                 <em> right_hand_side </em>,
+ *	                                 <em> numEquations </em>)
+ *	FROM <em>dataTable</em>;
+ * @endverbatim
+ */
+
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.sparse_direct_linear_system(
+	/*+ "row_id" */           INTEGER,
+	/*+ "col_id" */           INTEGER,
+	/*+ "value" */            DOUBLE PRECISION,
+    /*+ "right_hand_side" */  DOUBLE PRECISION,
+    /*+ "numEquations" */     INTEGER,
+    /*+ "numVars" */          INTEGER,
+    /*+ "nnz" */              INTEGER,
+    /*+ "algorithm" */        INTEGER
+);
+CREATE AGGREGATE MADLIB_SCHEMA.sparse_direct_linear_system(
+	/*+ "row_id" */           INTEGER,
+	/*+ "col_id" */           INTEGER,
+	/*+ "value" */            DOUBLE PRECISION,
+    /*+ "right_hand_side" */  DOUBLE PRECISION,
+    /*+ "numEquations" */     INTEGER,
+    /*+ "numVars" */          INTEGER,
+    /*+ "nnz" */              INTEGER,
+    /*+ "algorithm" */        INTEGER)(
+    STYPE=DOUBLE PRECISION[],
+    SFUNC=MADLIB_SCHEMA.sparse_direct_linear_system_transition,
+    m4_ifdef(`__POSTGRESQL__', `', `PREFUNC=MADLIB_SCHEMA.sparse_direct_linear_system_merge_states,')
+    FINALFUNC=MADLIB_SCHEMA.sparse_direct_linear_system_final,
+    INITCOND='{0,0,0,0,0,0}'
+);
+
+
+--------------------------- Interface ----------------------------------
+
+/**
+ * @brief Help function, to print out the supported families
+ */
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linear_solver_sparse(
+    input_string VARCHAR
+)
+RETURNS VARCHAR AS $$
+PythonFunction(linear_systems, sparse_linear_systems, linear_solver_sparse_help)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linear_solver_sparse()
+RETURNS VARCHAR AS $$
+BEGIN
+  RETURN MADLIB_SCHEMA.linear_solver_sparse('');
+END;
+$$ LANGUAGE plpgsql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+
+/**
+  @brief A wrapper function for the various marginal linear_systemsion analyzes.
+ *
+ * @param lhs_table String identifying the input A matrix
+ * @param rhs_table String identifying the input b vector
+ * @param out_table String identifying the output table to be created
+ * @param lhs_row_id Column name containing the LHS of the equations
+ * @param lhs_col_id Column name containing the LHS of the equations
+ * @param lhs_value Column name containing the LHS of the equations
+ * @param rhs_row_id Column name containing the RHS of the equations
+ * @param rhs_value Column name containing the RHS of the equations
+ * @param num_vars Number of variables in the system
+ * @param grouping_cols Columns to group the linear systems by
+ * @param optimizer Optimizer to be used
+ * @param optimizer_options Optimizer options used
+ *
+ *
+ * @return void
+ *
+ * @usage
+ * For function summary information. Run
+ * sql> select linear_solver_sparse('help');
+ * OR
+ * sql> select linear_solver_sparse();
+ * OR
+ * sql> select linear_solver_sparse('?');
+ * For function usage information. Run
+ * sql> select linear_solver_sparse('usage');
+ *
+ */
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linear_solver_sparse(
+     lhs_table                  VARCHAR       -- name of input lhs table
+   , rhs_table                  VARCHAR       -- name of input rhs table
+   , out_table                  VARCHAR       -- name of output table
+   , lhs_row_id                 VARCHAR       -- column name with row_id
+   , lhs_col_id                 VARCHAR       -- column name with col_id
+   , lhs_value                  VARCHAR       -- column name with value
+   , rhs_row_id                 VARCHAR       -- rhs row_id
+   , rhs_value                  VARCHAR       -- rhs value
+   , num_vars                   INTEGER       -- Number of variables
+   , grouping_cols              VARCHAR       -- name of columns to group by
+   , optimizer                  VARCHAR       -- Name of the optimizer
+   , optimizer_options          VARCHAR       -- Optimal parameters of the optimizer
+  )
+RETURNS VOID AS $$
+PythonFunction(linear_systems, sparse_linear_systems, linear_solver_sparse)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+
+
+-- Default Variable calls for linear_solver_sparse
+------------------------------------------------------------------------------
+
+/**
+ * @brief Marginal effects with default variables
+ */
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linear_solver_sparse(
+     lhs_table                  VARCHAR       -- name of input lhs table
+   , rhs_table                  VARCHAR       -- name of input rhs table
+   , out_table                  VARCHAR       -- name of output table
+   , lhs_row_id                 VARCHAR       -- column name with row_id
+   , lhs_col_id                 VARCHAR       -- column name with col_id
+   , lhs_value                  VARCHAR       -- column name with value
+   , rhs_row_id                 VARCHAR       -- rhs row_id
+   , rhs_value                  VARCHAR       -- rhs value
+   , num_vars                   INTEGER       -- Number of variables
+  )
+RETURNS VOID AS $$
+BEGIN
+  PERFORM MADLIB_SCHEMA.linear_solver_sparse(
+                              lhs_table,
+                              rhs_table,
+                              out_table,
+                              lhs_row_id,
+                              lhs_col_id,
+                              lhs_value,
+                              rhs_row_id,
+                              rhs_value,
+                              num_vars,
+                              NULL,
+                              'direct',
+                              NULL);
+
+END;
+$$ LANGUAGE plpgsql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+
+/**
+ * @brief Marginal effects with default variables
+ */
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linear_solver_sparse(
+     lhs_table                  VARCHAR       -- name of input lhs table
+   , rhs_table                  VARCHAR       -- name of input rhs table
+   , out_table                  VARCHAR       -- name of output table
+   , lhs_row_id                 VARCHAR       -- column name with row_id
+   , lhs_col_id                 VARCHAR       -- column name with col_id
+   , lhs_value                  VARCHAR       -- column name with value
+   , rhs_row_id                 VARCHAR       -- rhs row_id
+   , rhs_value                  VARCHAR       -- rhs value
+   , num_vars                   INTEGER       -- Number of variables
+   , grouping_cols              VARCHAR       -- name of columns to group by
+)
+RETURNS VOID AS $$
+BEGIN
+  PERFORM MADLIB_SCHEMA.linear_solver_sparse(
+                              lhs_table,
+                              rhs_table,
+                              out_table,
+                              lhs_row_id,
+                              lhs_col_id,
+                              lhs_value,
+                              rhs_row_id,
+                              rhs_value,
+                              num_vars,
+                              grouping_cols,
+                              'direct',
+                              NULL);
+END;
+$$ LANGUAGE plpgsql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+/**
+ * @brief Marginal effects with default variables
+ */
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.linear_solver_sparse(
+     lhs_table                  VARCHAR       -- name of input lhs table
+   , rhs_table                  VARCHAR       -- name of input rhs table
+   , out_table                  VARCHAR       -- name of output table
+   , lhs_row_id                 VARCHAR       -- column name with row_id
+   , lhs_col_id                 VARCHAR       -- column name with col_id
+   , lhs_value                  VARCHAR       -- column name with value
+   , rhs_row_id                 VARCHAR       -- rhs row_id
+   , rhs_value                  VARCHAR       -- rhs value
+   , num_vars                   INTEGER       -- Number of variables
+   , grouping_cols              VARCHAR       -- name of columns to group by
+   , optimizer                  VARCHAR       -- Name of the optimizer
+  )
+RETURNS VOID AS $$
+BEGIN
+  PERFORM MADLIB_SCHEMA.linear_solver_sparse(
+                              lhs_table,
+                              rhs_table,
+                              out_table,
+                              lhs_row_id,
+                              lhs_col_id,
+                              lhs_value,
+                              rhs_row_id,
+                              rhs_value,
+                              num_vars,
+                              grouping_cols,
+                              optimizer,
+                              NULL);
+END;
+$$ LANGUAGE plpgsql VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');

@@ -1,0 +1,61 @@
+/* ----------------------------------------------------------------------- *//**
+ *
+ * @file viterbi.sql_in
+ * @brief concatenate a set of input values into arrays to feed into viterbi c
+ *  function and create a human readable view of the output
+ * @date   February 2012
+ *
+ *
+ *//* ----------------------------------------------------------------------- */
+
+m4_include(`SQLCommon.m4')
+
+/**
+ * @brief This function creates the specified result_tbl containing top1 labels for the sequence.
+ * @param segment_tbl Name of table containing all the testing sentences.
+ * @param label_tbl Name of table containing all the labels in the label space.
+ * @param result_tbl Name of table storing the best label sequence and the conditional probability.
+*/
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.vcrf_top1_table(
+    segment_tbl     TEXT,
+    label_tbl       TEXT,
+    resulttbl_raw   TEXT,
+    result_tbl      TEXT
+) returns TEXT AS $$
+PythonFunction(crf, viterbi, vcrf_top1_table)
+$$ LANGUAGE plpythonu strict
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+/**
+ * @brief This function implements the Viterbi algorithm which takes the sentence to be label as input and return the top1 labeling for that sentence
+ * @param marray Name of arrays containing m factors
+ * @param rarray Name of arrays containing r factors
+ * @param nlabel Total number of labels in the label space
+ * @returns the top1 label sequence, the last two elements in the array is used to calculate the top1 probability
+ */
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.vcrf_top1_label(mArray DOUBLE PRECISION[], rArray DOUBLE PRECISION[], nlabel int)
+returns int[] as 'MODULE_PATHNAME' language c strict;
+
+
+/**
+ * @brief This function prepares the inputs for the c function 'vcrf_top1_label' and invoke the c function.
+ * @param segment_tbl Name of table containing all the testing sentences.
+ * @param factor_mtbl Name of table containing all the m factors.
+ * @param factor_rtbl Name of table containing all the r factors.
+ * @param label_tbl Name of table containing all the labels in the label space.
+ * @param result_tbl Name of table to store the output
+ * @returns the top1 label sequence, the last two elements in the array is used to calculate the top1 probability
+ */
+
+CREATE OR REPLACE FUNCTION
+MADLIB_SCHEMA.vcrf_label(
+    segment_tbl TEXT,
+    factor_mtbl TEXT,
+    factor_rtbl TEXT,
+    label_tbl   TEXT,
+    result_tbl TEXT
+)   RETURNS TEXT AS $$
+PythonFunction(crf, viterbi, vcrf_label)
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');

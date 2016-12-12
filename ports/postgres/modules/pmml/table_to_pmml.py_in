@@ -1,0 +1,125 @@
+"""
+@file
+
+@brief Convert model table from MADlib to PMML
+
+@namespace table_to_pmml
+"""
+
+import plpy
+
+from builder import RegressionPMMLBuilder
+from builder import GLMPMMLBuilder
+from builder import OrdinalRegressionPMMLBuilder
+from builder import MultinomRegressionPMMLBuilder
+from builder import DecisionTreePMMLBuilder
+from builder import RandomForestPMMLBuilder
+
+from utilities.validate_args import input_tbl_valid
+from utilities.validate_args import cols_in_tbl_valid
+from utilities.utilities import add_postfix
+
+BUILDER_CLASS = {
+    'glm': GLMPMMLBuilder,
+    'multinom': MultinomRegressionPMMLBuilder,
+    'ordinal': OrdinalRegressionPMMLBuilder,
+    'logregr': RegressionPMMLBuilder,
+    'linregr': RegressionPMMLBuilder,
+    'tree_train': DecisionTreePMMLBuilder,
+    'forest_train': RandomForestPMMLBuilder
+}
+
+
+def table_to_pmml(schema_madlib, model_table, **kwargs):
+    # parameter validation
+    input_tbl_valid(model_table, 'PMML')
+    model_summary_name = add_postfix(model_table, "_summary")
+    input_tbl_valid(model_summary_name, 'PMML')
+    cols_in_tbl_valid(model_summary_name, ['method'], 'PMML')
+    model_type = plpy.execute("SELECT method FROM {0}".
+                              format(model_summary_name))[0]['method']
+    if model_type not in BUILDER_CLASS:
+        plpy.error("Model {0} to PMML is not supported!".format(model_type))
+
+    # construct builder
+    name_spec = kwargs['name_spec'] if 'name_spec' in kwargs else None
+    builder = BUILDER_CLASS[model_type](schema_madlib, model_type,
+                                        model_table, name_spec)
+
+    # query and build
+    builder.query()
+    builder.build()
+    return builder.pmml_str
+
+
+########################################################################
+# online document
+########################################################################
+def pmml_help_msg(schema_madlib, **kwargs):
+    """ Help message for PMML
+    Returns:
+      A string, contains the help message
+    """
+    help_string = """
+----------------------------------------------------------------
+                        SUMMARY
+----------------------------------------------------------------
+Implements the PMML XML standard to describe and exchange models
+produced by data mining and machine learning algorithms. Currently,
+pmml() supports linear regression, logistic regression, generalized
+linear model, multinomial logistic regression and ordinal linear
+regression model.
+
+------------------------------------------------------------------
+                        USAGE
+------------------------------------------------------------------
+SELECT {schema_madlib}.pmml(
+    model_table,         -- Model table that contains the output of a training algorithm
+    name_spec            -- (optional) Names to be used in the Data Dictionary
+);
+
+------------------------------------------------------------------
+                        OUTPUT
+------------------------------------------------------------------
+The output of this function is a standard PMML document.
+
+------------------------------------------------------------------
+                        OUTPUT
+------------------------------------------------------------------
+-- Create data set
+CREATE TABLE patients( id integer NOT NULL,
+                       second_attack integer,
+                       treatment integer,
+                       trait_anxiety integer);
+INSERT INTO patients(id, second_attack, treatment, trait_anxiety) VALUES
+( 1, 1, 1, 70),
+( 3, 1, 1, 50),
+( 5, 1, 0, 40),
+( 7, 1, 0, 75),
+( 9, 1, 0, 70),
+(11, 0, 1, 65),
+(13, 0, 1, 45),
+(15, 0, 1, 40),
+(17, 0, 0, 55),
+(19, 0, 0, 50),
+( 2, 1, 1, 80),
+( 4, 1, 0, 60),
+( 6, 1, 0, 65),
+( 8, 1, 0, 80),
+(10, 1, 0, 60),
+(12, 0, 1, 50),
+(14, 0, 1, 35),
+(16, 0, 1, 50),
+(18, 0, 0, 45),
+(20, 0, 0, 60);
+-- train the model
+SELECT madlib.logregr_train(
+        'patients',
+        'patients_logregr',
+        'second_attack',
+        'ARRAY[1, treatment, trait_anxiety]');
+-- pmml export
+SELECT madlib.pmml('patients_logregr');
+    """
+
+    return help_string.format(schema_madlib=schema_madlib)
